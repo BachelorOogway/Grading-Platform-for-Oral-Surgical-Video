@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AssignmentConfig {
+  id              String   @id @default("default")
+  // JSON string: [{ "start": 1, "end": 75 }, ...]
+  exclusiveRanges String
+  // JSON string: [{ "start": 76, "end": 99 }, ...]
+  sharedRanges    String
+  updatedAt       DateTime @updatedAt
+}
+
+model Expert {
+  id           String           @id @default(cuid())
+  expertId     String           @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  assignments  TaskAssignment[]
+  grading      GradingResult[]
+
+  @@index([name])
+}
+
+model AiOutput {
+  id            String   @id @default(cuid())
+  videoOutputId String   @unique
+  rawText       String
+  // JSON string of parsed AI output
+  parsedData    String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignments TaskAssignment[]
+  grading     GradingResult[]
+
+  @@index([createdAt])
+}
+
+model TaskAssignment {
+  id         String   @id @default(cuid())
+  expertId   String
+  aiOutputId String
+  // EXCLUSIVE | SHARED
+  kind       String   @default("EXCLUSIVE")
+  // PENDING | COMPLETED
+  status     String   @default("PENDING")
+  assignedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  // Admin requested regrade
+  regradeNote        String?
+  regradeRequestedAt DateTime?
+
+  expert        Expert         @relation(fields: [expertId], references: [id])
+  aiOutput      AiOutput       @relation(fields: [aiOutputId], references: [id])
+  gradingResult GradingResult?
+
+  @@unique([expertId, aiOutputId])
+  @@index([status])
+}
+
+model GradingResult {
+  id               String   @id @default(cuid())
+  taskAssignmentId String   @unique
+  expertId         String
+  aiOutputId       String
+  // JSON string of grading form answers
+  gradingData      String
+  submittedAt      DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  taskAssignment TaskAssignment @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+  expert         Expert         @relation(fields: [expertId], references: [id])
+  aiOutput       AiOutput       @relation(fields: [aiOutputId], references: [id])
+
+  @@index([submittedAt])
+  @@index([expertId])
+  @@index([aiOutputId])
+}

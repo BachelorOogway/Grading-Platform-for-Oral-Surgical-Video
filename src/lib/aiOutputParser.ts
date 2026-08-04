@@ -1,0 +1,303 @@
+export type AiPhase = {
+  aiStartTime: string;
+  aiEndTime: string;
+  description: string;
+};
+
+export type AiStructure = { name: string };
+export type AiInstrument = { name: string };
+
+export type AiLevel4Dimension = {
+  key: string;
+  label: string;
+  aiScore: number;
+  justification: string;
+};
+
+export type AiParsedData = {
+  level1: {
+    procedureType: string;
+    structures: AiStructure[];
+    totalStructures: number | null;
+    instruments: AiInstrument[];
+    totalInstruments: number | null;
+    spatialPositioning: string;
+  };
+  level2: {
+    phases: AiPhase[];
+    totalPhases: number | null;
+    missedStepsEvaluation: string;
+  };
+  level3: {
+    nextActionPrediction: string;
+    clinicalRationale: string;
+    surgeryCompleted: string | null;
+  };
+  level4: {
+    dimensions: AiLevel4Dimension[];
+  };
+};
+
+const LEVEL4_DEFS: Array<{ key: string; label: string; pattern: RegExp }> = [
+  {
+    key: "respectForTissue",
+    label: "Respect for tissue",
+    pattern: /^Respect for tissue:\s*(\d)\s*-\s*(.+)$/im,
+  },
+  {
+    key: "sutureNeedleHandling",
+    label: "Suture/needle handling",
+    pattern: /^Suture\/needle handling:\s*(\d)\s*-\s*(.+)$/im,
+  },
+  {
+    key: "timeAndMotion",
+    label: "Time and motion",
+    pattern: /^Time and motion:\s*(\d)\s*-\s*(.+)$/im,
+  },
+  {
+    key: "flowOfOperation",
+    label: "Flow of operation",
+    pattern: /^Flow of operation:\s*(\d)\s*-\s*(.+)$/im,
+  },
+  {
+    key: "qualityOfFinalProduct",
+    label: "Quality of final product",
+    pattern: /^Quality of final product:\s*(\d)\s*-\s*(.+)$/im,
+  },
+  {
+    key: "overallPerformance",
+    label: "Overall performance",
+    pattern: /^Overall performance:\s*(\d)\s*-\s*(.+)$/im,
+  },
+];
+
+function safeTrim(s: string) {
+  return (s ?? "").replace(/\s+/g, " ").trim();
+}
+
+function extractSection(text: string, startRe: RegExp, endRe: RegExp) {
+  const startMatch = startRe.exec(text);
+  if (!startMatch) return "";
+  const from = startMatch.index;
+  const rest = text.slice(from + startMatch[0].length);
+  const endMatch = endRe.exec(rest);
+  const body = endMatch ? rest.slice(0, endMatch.index) : rest;
+  return body;
+}
+
+function parseCount(line: string, label: string): number | null {
+  const re = new RegExp(`${label}:\\s*(\\d+)`, "i");
+  const m = re.exec(line);
+  return m ? Number(m[1]) : null;
+}
+
+function stripHeaderPrefix(line: string, prefix: string) {
+  const re = new RegExp(`^${prefix}\\s*:?\\s*`, "i");
+  return safeTrim(line.replace(re, ""));
+}
+
+function parseItemsBeforeEval(
+  section: string,
+  evalMarker: string,
+  headerPrefix?: string,
+): string[] {
+  const items: string[] = [];
+  const markerRe = new RegExp(
+    `\\[Human Expert Evaluation:\\s*${evalMarker}\\]`,
+    "gi",
+  );
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  const text = section;
+
+  while ((m = markerRe.exec(text))) {
+    const chunk = text.slice(lastIndex, m.index);
+    const lines = chunk
+      .split(/\r?\n/)
+      .map((l) => safeTrim(l))
+      .filter(Boolean);
+
+    let name = "";
+    if (lines.length > 0) {
+      name = lines[lines.length - 1];
+      if (headerPrefix && items.length === 0) {
+        name = stripHeaderPrefix(name, headerPrefix);
+      }
+    }
+
+    if (name) items.push(name);
+    lastIndex = markerRe.lastIndex;
+  }
+
+  return items;
+}
+
+function parseLevel1(text: string): AiParsedData["level1"] {
+  const section = extractSection(
+    text,
+    /Level\s*1\s*Analysis/i,
+    /Level\s*2\s*Analysis/i,
+  );
+
+  let procedureType = "";
+  const procMatch =
+    /Procedure Type:\s*(.*?)\s*\[Human Expert Evaluation:\s*Procedure Type\]/is.exec(
+      section,
+    );
+  if (procMatch) {
+    procedureType = safeTrim(procMatch[1]);
+  } else {
+    const fallback = /Procedure Type:\s*(.+)$/im.exec(section);
+    procedureType = fallback ? safeTrim(fallback[1]) : "";
+  }
+
+  const structuresSection = extractSection(
+    section,
+    /Anatomical and Pathological Structures/i,
+    /Total number of detected structures|Instrument Inventory/i,
+  );
+  const structureNames = parseItemsBeforeEval(
+    structuresSection,
+    "Structures",
+    "Anatomical and Pathological Structures",
+  );
+
+  const totalStructuresLine = section.match(/Total number of detected structures:\s*(\d+)/i);
+  const totalStructures = totalStructuresLine ? Number(totalStructuresLine[1]) : null;
+
+  const instrumentsSection = extractSection(
+    section,
+    /Instrument Inventory/i,
+    /Total number of detected instruments/i,
+  );
+  const instrumentNames = parseItemsBeforeEval(
+    instrumentsSection,
+    "Inventory",
+    "Instrument Inventory",
+  );
+
+  const totalInstrumentsLine = section.match(/Total number of detected instruments:\s*(\d+)/i);
+  const totalInstruments = totalInstrumentsLine ? Number(totalInstrumentsLine[1]) : null;
+
+  let spatialPositioning = "";
+  const spatialMatch =
+    /Spatial Positioning:\s*(.*?)\s*\[Human Expert Evaluation:\s*Spatial Positioning\]/is.exec(
+      section,
+    );
+  if (spatialMatch) {
+    spatialPositioning = safeTrim(spatialMatch[1]);
+  } else {
+    const fallback = /Spatial Positioning:\s*(.+)$/im.exec(section);
+    spatialPositioning = fallback ? safeTrim(fallback[1]) : "";
+  }
+
+  return {
+    procedureType,
+    structures: structureNames.map((name) => ({ name })),
+    totalStructures,
+    instruments: instrumentNames.map((name) => ({ name })),
+    totalInstruments,
+    spatialPositioning,
+  };
+}
+
+function parseLevel2(text: string): AiParsedData["level2"] {
+  const section = extractSection(
+    text,
+    /Level\s*2\s*Analysis/i,
+    /Level\s*3\s*Analysis/i,
+  );
+
+  const phases: AiPhase[] = [];
+  const phaseRegex =
+    /\[(\d{2}:\d{2}:\d{2})\s+to\s+(\d{2}:\d{2}:\d{2})\]\s*-\s*([^\r\n]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = phaseRegex.exec(section))) {
+    phases.push({
+      aiStartTime: m[1],
+      aiEndTime: m[2],
+      description: safeTrim(m[3]),
+    });
+  }
+
+  const totalPhasesLine = section.match(/Total number of detected phases:\s*(\d+)/i);
+  const totalPhases = totalPhasesLine
+    ? Number(totalPhasesLine[1])
+    : phases.length;
+
+  let missedStepsEvaluation = "";
+  const missedMatch =
+    /Missed Steps Evaluation:\s*(.+?)(?=\[Human Expert Evaluation\]|$)/is.exec(section);
+  if (missedMatch) {
+    missedStepsEvaluation = safeTrim(missedMatch[1]);
+  }
+
+  return { phases, totalPhases, missedStepsEvaluation };
+}
+
+function parseLevel3(text: string): AiParsedData["level3"] {
+  const section = extractSection(
+    text,
+    /Level\s*3\s*Analysis/i,
+    /Level\s*4\s*Analysis/i,
+  );
+
+  const surgeryCompletedMatch =
+    /Is the surgery completed\?\s*\[?\s*(Yes|No)\s*\]?/i.exec(section) ||
+    /Is the surgery completed\?\s*(Yes|No)/i.exec(section);
+  const surgeryCompleted = surgeryCompletedMatch
+    ? surgeryCompletedMatch[1]
+    : null;
+
+  let nextActionPrediction = "";
+  let clinicalRationale = "";
+
+  const nextMatch = /Next Action Prediction:\s*(.+)/is.exec(section);
+  if (nextMatch) {
+    const raw = nextMatch[1];
+    const rationaleSplit = /Clinical Rationale:\s*/i.exec(raw);
+    if (rationaleSplit) {
+      nextActionPrediction = safeTrim(raw.slice(0, rationaleSplit.index));
+      clinicalRationale = safeTrim(raw.slice(rationaleSplit.index + rationaleSplit[0].length));
+      clinicalRationale = clinicalRationale.split("[Human Expert Evaluation")[0].trim();
+    } else {
+      nextActionPrediction = safeTrim(raw.split("[Human Expert Evaluation")[0]);
+    }
+  }
+
+  return {
+    nextActionPrediction,
+    clinicalRationale,
+    surgeryCompleted,
+  };
+}
+
+function parseLevel4(text: string): AiParsedData["level4"] {
+  const sectionMatch = text.match(/Level\s*4\s*Analysis[\s\S]*$/i);
+  const section = sectionMatch?.[0] ?? "";
+
+  const dimensions: AiLevel4Dimension[] = [];
+  for (const def of LEVEL4_DEFS) {
+    const dm = def.pattern.exec(section);
+    if (dm) {
+      dimensions.push({
+        key: def.key,
+        label: def.label,
+        aiScore: Number(dm[1]),
+        justification: safeTrim(dm[2]),
+      });
+    }
+  }
+
+  return { dimensions };
+}
+
+export function parseAiOutputToParsedData(inputText: string): AiParsedData {
+  const text = inputText ?? "";
+  return {
+    level1: parseLevel1(text),
+    level2: parseLevel2(text),
+    level3: parseLevel3(text),
+    level4: parseLevel4(text),
+  };
+}
