@@ -9,3 +9,13 @@ export function parseVideoNumber(videoOutputId: string): number | null {
 export function formatVideoOutputId(videoNumber: number): string {
   return `V${String(videoNumber).padStart(2, "0")}`;
 }
+
+/**
+ * Canonical exclusive Video ID: V01, V02, ...
+ * Returns null if the input is not a valid video id.
+ */
+export function normalizeVideoOutputId(raw: string): string | null {
+  const n = parseVideoNumber(raw);
+  if (n == null) return null;
+  return formatVideoOutputId(n);
+}

@@ -1,5 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  computeGlobalGradingMetrics,
+  level1SignalsFromGradingData,
+  level2SignalsFromGradingData,
+  type GlobalGradingMetrics,
+} from "@/lib/globalGradingMetrics";
+import {
+  aiCompletedFromParsedData,
+  level3SignalsFromGradingData,
+} from "@/lib/level3Metrics";
+import { level4HallucinationFromGradingData } from "@/lib/level4Metrics";
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return '""';
@@ -122,6 +133,161 @@ function countInstrumentInputs(l1: any) {
   };
 }
 
+function globalSummaryLines(m: GlobalGradingMetrics): string[] {
+  const l1 = m.level1;
+  const l2 = m.level2;
+  const l3 = m.level3;
+  const l4 = m.level4;
+  const rows: Array<[string, string, unknown, unknown, unknown]> = [
+    ["global", "form_count", m.formCount, "", ""],
+    [
+      "level1_global",
+      "procedure_type_accuracy",
+      l1.procedureTypeAccuracy,
+      l1.procedureTypeCorrectCount,
+      l1.procedureTypeLabeledCount,
+    ],
+    [
+      "level1_global",
+      "spatial_positioning_accuracy",
+      l1.spatialPositioningAccuracy,
+      l1.spatialPositioningCorrectCount,
+      l1.spatialPositioningLabeledCount,
+    ],
+    [
+      "level2_global",
+      "missed_phases_count_correlation",
+      l2.missedPhasesCountCorrelation,
+      "",
+      l2.countPairCount,
+    ],
+    [
+      "level2_global",
+      "missed_phases_content_accuracy",
+      l2.missedPhasesContentAccuracy,
+      l2.contentCorrectCount,
+      l2.contentLabeledCount,
+    ],
+    ["level3_global", "exit_eligible_count", l3.exitEligibleCount, "", ""],
+    ["level3_global", "incomplete_expert_count", l3.incompleteExpertCount, "", ""],
+    [
+      "level3_global",
+      "exit_precision",
+      l3.exitPrecision,
+      l3.exitTruePositive,
+      l3.exitTruePositive + l3.exitFalsePositive,
+    ],
+    [
+      "level3_global",
+      "exit_recall",
+      l3.exitRecall,
+      l3.exitTruePositive,
+      l3.exitTruePositive + l3.exitFalseNegative,
+    ],
+    [
+      "level3_global",
+      "global_precision",
+      l3.globalPrecision,
+      "",
+      l3.incompleteExpertCount,
+    ],
+    [
+      "level3_global",
+      "nomenclature_accuracy",
+      l3.nomenclatureAccuracy,
+      "",
+      l3.incompleteExpertCount,
+    ],
+    [
+      "level3_global",
+      "safety_fail_rate",
+      l3.safetyFailRate,
+      "",
+      l3.incompleteExpertCount,
+    ],
+    [
+      "level3_global",
+      "false_exit_rate",
+      l3.falseExitRate,
+      l3.exitFalsePositive,
+      l3.formCount,
+    ],
+    ["level3_global", "exit_true_positive", l3.exitTruePositive, "", ""],
+    ["level3_global", "exit_false_positive", l3.exitFalsePositive, "", ""],
+    ["level3_global", "exit_false_negative", l3.exitFalseNegative, "", ""],
+    ["level3_global", "exit_true_negative", l3.exitTrueNegative, "", ""],
+    ["level4_global", "pair_count", l4.pairCount, "", ""],
+    ["level4_global", "mae", l4.mae, "", l4.pairCount],
+    ["level4_global", "lcc", l4.lcc, "", l4.pairCount],
+    ["level4_global", "srocc", l4.srocc, "", l4.pairCount],
+    [
+      "level4_global",
+      "mean_hallucination_rate",
+      l4.meanHallucinationRate,
+      l4.hallucinationYesCount,
+      l4.hallucinationTotalCount,
+    ],
+    [
+      "level4_global",
+      "hallucination_form_count",
+      l4.hallucinationFormCount,
+      "",
+      "",
+    ],
+    [
+      "inter_expert",
+      "shared_video_count",
+      m.interExpert.sharedVideoCount,
+      "",
+      "",
+    ],
+    [
+      "inter_expert",
+      "shared_expert_count",
+      m.interExpert.sharedExpertCount,
+      "",
+      "",
+    ],
+    [
+      "inter_expert",
+      "expert_pair_count",
+      m.interExpert.expertPairCount,
+      "",
+      "",
+    ],
+    [
+      "inter_expert",
+      "score_pair_count",
+      m.interExpert.scorePairCount,
+      "",
+      "",
+    ],
+    [
+      "inter_expert",
+      "icc",
+      m.interExpert.icc,
+      "",
+      m.interExpert.scorePairCount,
+    ],
+    [
+      "inter_expert",
+      "icc_fisher_z",
+      m.interExpert.iccFisherZ,
+      "",
+      m.interExpert.expertPairCount,
+    ],
+  ];
+
+  return [
+    ["section", "metric", "value", "numerator", "denominator"]
+      .map(csvEscape)
+      .join(","),
+    ...rows.map(([section, metric, value, num, den]) =>
+      [section, metric, value, num, den].map(csvEscape).join(","),
+    ),
+  ];
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const secret = req.headers.get("x-admin-secret") || url.searchParams.get("secret");
@@ -141,10 +307,29 @@ export async function GET(req: Request) {
     orderBy: { submittedAt: "desc" },
   });
 
+  const globalMetrics = computeGlobalGradingMetrics(
+    results.map((r) => ({
+      gradingData: r.gradingData,
+      parsedData: r.taskAssignment.aiOutput.parsedData,
+      videoOutputId: r.taskAssignment.aiOutput.videoOutputId,
+      expertId: r.taskAssignment.expert.expertId,
+      kind: r.taskAssignment.kind,
+    })),
+  );
+
+  const level3Forms = results.map((r) => {
+    const aiCompleted = aiCompletedFromParsedData(
+      r.taskAssignment.aiOutput.parsedData,
+    );
+    return level3SignalsFromGradingData(r.gradingData, aiCompleted);
+  });
+
   const headers = [
     "videoOutputId",
     "expertId",
     "submittedAt",
+    "l1_procedure_type_correct",
+    "l1_spatial_positioning_correct",
     "structures_correct_count",
     "structures_total_count",
     "structures_precision",
@@ -164,16 +349,36 @@ export async function GET(req: Request) {
     "content_hallucination_rate",
     "content_misrecognition_rate",
     "phases_tiou_inputs_json",
+    "l2_ai_missed_phases_count",
+    "l2_expert_missed_phases_count",
+    "l2_missed_phases_content_correct",
+    "l3_ai_surgery_completed",
+    "l3_expert_surgery_completed",
+    "l3_next_action_accurate",
+    "l3_nomenclature_standardized",
+    "l3_safety_check_pass",
+    "l4_hallucination_yes_count",
+    "l4_hallucination_total_count",
+    "l4_hallucination_rate",
   ];
 
-  const lines: string[] = [headers.map(csvEscape).join(",")];
+  const lines: string[] = [
+    ...globalSummaryLines(globalMetrics),
+    "",
+    headers.map(csvEscape).join(","),
+  ];
 
-  for (const r of results) {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     const ta = r.taskAssignment;
     const gd: any = parseGradingData(r.gradingData);
     const l1: any = gd.level1 ?? {};
     const l2: any = gd.level2 ?? {};
     const phases: any[] = Array.isArray(l2.phases) ? l2.phases : [];
+    const l1sig = level1SignalsFromGradingData(r.gradingData);
+    const l2sig = level2SignalsFromGradingData(r.gradingData);
+    const l3sig = level3Forms[i];
+    const l4hall = level4HallucinationFromGradingData(r.gradingData);
 
     const structures = countStructureInputs(l1);
     const instruments = countInstrumentInputs(l1);
@@ -197,7 +402,6 @@ export async function GET(req: Request) {
           (instrumentPrecision + instrumentRecall)
         : null;
 
-    // Prefer stored metrics; else recompute from phase judgements
     let contentAccuracy =
       typeof l2.metrics?.contentAccuracy === "number"
         ? l2.metrics.contentAccuracy
@@ -251,6 +455,8 @@ export async function GET(req: Request) {
       ta.aiOutput.videoOutputId,
       ta.expert.expertId,
       r.submittedAt?.toISOString?.() ?? String(r.submittedAt),
+      l1sig.procedureTypeCorrect,
+      l1sig.spatialPositioningCorrect,
       structures.correct,
       structures.total,
       structurePrecision,
@@ -270,6 +476,17 @@ export async function GET(req: Request) {
       contentHallucinationRate,
       contentMisrecognitionRate,
       JSON.stringify(phasesForTiou),
+      l2sig.aiMissedPhasesCount,
+      l2sig.expertMissedPhasesCount,
+      l2sig.missedPhasesContentCorrect,
+      l3sig.aiCompleted ?? "",
+      l3sig.expertCompleted ?? "",
+      l3sig.nextActionAccurate,
+      l3sig.nomenclatureStandardized,
+      l3sig.safetyCheckPass,
+      l4hall?.yesCount ?? "",
+      l4hall?.totalCount ?? "",
+      l4hall?.rate ?? "",
     ];
 
     lines.push(row.map(csvEscape).join(","));

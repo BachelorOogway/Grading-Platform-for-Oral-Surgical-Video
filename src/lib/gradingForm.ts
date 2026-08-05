@@ -20,7 +20,6 @@ export type ItemJudgement = {
 export type Level1Form = {
   procedureTypeCorrect: Correctness;
   structures: ItemJudgement[];
-  anatomicalOverallCorrect: Correctness;
   wrongStructuresCount: number;
   instruments: ItemJudgement[];
   wrongInstrumentsCount: number;
@@ -102,7 +101,6 @@ export function buildDefaultGradingForm(parsed: AiParsedData): GradingForm {
         correct: "correct",
         incorrectReason: "",
       })),
-      anatomicalOverallCorrect: "correct",
       wrongStructuresCount: 0,
       instruments: parsed.level1.instruments.map(() => ({
         correct: "correct",
@@ -257,8 +255,6 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
             j?.correct === "incorrect" ? j?.incorrectReason || null : null,
         };
       }),
-      anatomicalOverallCorrect:
-        values.level1.anatomicalOverallCorrect === "correct",
       wrongStructuresCount: metrics.structures.wrong,
       structureCorrectCount: metrics.structures.correct,
       structureTotalCount: metrics.structures.total,
@@ -311,6 +307,7 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
           ),
         };
       }),
+      aiMissedPhasesCount: parsed.level2.aiMissedPhasesCount,
       missedPhasesCount: values.level2.missedPhasesCount,
       missedStepsDetectedCorrect:
         values.level2.missedStepsDetectedCorrect === "correct",
@@ -354,11 +351,30 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       dimensions: parsed.level4.dimensions.map((d) => ({
         key: d.key,
         label: d.label,
+        aiScore: d.aiScore,
         expertScore: values.level4.dimensions[d.key]?.expertScore ?? 1,
         aiJustificationHallucination:
           values.level4.dimensions[d.key]?.aiJustificationHallucination ===
           "yes",
       })),
+      ...(() => {
+        let yesCount = 0;
+        let totalCount = 0;
+        for (const d of parsed.level4.dimensions) {
+          const v = values.level4.dimensions[d.key]?.aiJustificationHallucination;
+          if (v === "yes") {
+            yesCount += 1;
+            totalCount += 1;
+          } else if (v === "no") {
+            totalCount += 1;
+          }
+        }
+        return {
+          hallucinationYesCount: yesCount,
+          hallucinationTotalCount: totalCount,
+          hallucinationRate: totalCount > 0 ? yesCount / totalCount : null,
+        };
+      })(),
     },
   };
 }
@@ -408,9 +424,6 @@ export function hydrateGradingForm(
             correct === "incorrect" ? toIncorrectReason(s?.incorrectReason) : "",
         };
       }),
-      anatomicalOverallCorrect: toCorrectness(
-        l1.anatomicalOverallCorrect ?? base.level1.anatomicalOverallCorrect,
-      ),
       wrongStructuresCount: Number(l1.wrongStructuresCount) || 0,
       instruments: parsed.level1.instruments.map((_, i) => {
         const s = savedInstruments[i] ?? base.level1.instruments[i];
@@ -586,9 +599,6 @@ export function getGradingIncompleteFields(
   const l1 = values.level1;
   if (!hasChoice(l1.procedureTypeCorrect)) {
     missing.push({ id: "l1-procedureType", message: "Level 1: Procedure Type" });
-  }
-  if (!hasChoice(l1.anatomicalOverallCorrect)) {
-    missing.push({ id: "l1-anatomicalOverall", message: "Level 1: Structures overall" });
   }
   if (!hasChoice(l1.spatialPositioningCorrect)) {
     missing.push({ id: "l1-spatial", message: "Level 1: Spatial Positioning" });

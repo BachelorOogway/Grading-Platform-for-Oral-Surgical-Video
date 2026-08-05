@@ -405,6 +405,101 @@ textarea:disabled {
   color: var(--ink-soft);
 }
 
+.admin-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.admin-metric-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px 14px 12px;
+  background: linear-gradient(180deg, #f7fbfa 0%, #f3f7f9 100%);
+}
+
+.admin-metric-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 0.01em;
+}
+
+.admin-metric-value {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-metric-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.admin-conflict-box {
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.admin-grading-item {
+  display: grid;
+  gap: 0;
+}
+
+.admin-grading-detail {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #f8fafb;
+}
+
+.admin-form-view {
+  display: grid;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.admin-form-view h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.admin-form-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.admin-form-row-label {
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.admin-form-row-value {
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.admin-form-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  line-height: 1.45;
+}
+
 .grading-reason {
   margin-top: 10px;
   padding: 12px;

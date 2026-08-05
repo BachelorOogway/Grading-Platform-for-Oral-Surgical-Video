@@ -24,6 +24,7 @@ import {
   scrollToGradingField,
   type GradingForm,
 } from "@/lib/gradingForm";
+import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/;
 
@@ -363,19 +364,6 @@ export function GradingFormPanel({
             </FieldAnchor>
           );
         })}
-
-        <FieldAnchor
-          id="l1-anatomicalOverall"
-          error={hasError("l1-anatomicalOverall")}
-          style={{ marginBottom: 8, padding: 8, borderRadius: 8 }}
-        >
-          <CorrectIncorrect
-            legend="Structures overall Correct / Incorrect"
-            name="level1.anatomicalOverallCorrect"
-            register={register}
-            disabled={completed}
-          />
-        </FieldAnchor>
 
         <label style={{ display: "grid", gap: 4, marginTop: 10 }}>
           Number of wrong structures
@@ -875,8 +863,19 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           error={hasError("l2-missedPhases")}
           style={{ marginTop: 10, padding: 8, borderRadius: 8 }}
         >
+          <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 8 }}>
+            AI detected missed phases:{" "}
+            <strong style={{ color: "var(--ink)" }}>
+              {l2.aiMissedPhasesCount == null ? "—" : l2.aiMissedPhasesCount}
+            </strong>
+          </div>
+          {l2.missedStepsEvaluation ? (
+            <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 8, lineHeight: 1.45 }}>
+              AI Missed Steps / Phases content: {l2.missedStepsEvaluation}
+            </div>
+          ) : null}
           <label style={{ display: "grid", gap: 4 }}>
-            Number of missed phases
+            Expert missed phases count (your count)
             <input
               type="number"
               step={1}
@@ -900,13 +899,8 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           error={hasError("l2-missedSteps")}
           style={{ marginTop: 10, padding: 8, borderRadius: 8 }}
         >
-          {l2.missedStepsEvaluation && (
-            <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 8 }}>
-              AI Missed Steps: {l2.missedStepsEvaluation}
-            </div>
-          )}
           <CorrectIncorrect
-            legend="Missed steps detected correctly?"
+            legend="Is the missed-phase content correct?"
             name="level2.missedStepsDetectedCorrect"
             register={register}
             disabled={completed}
@@ -1108,6 +1102,31 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
             </div>
           );
         })}
+
+        {(() => {
+          const watchedDims = watch("level4.dimensions") ?? {};
+          const hall = computeLevel4HallucinationRate(
+            watchedDims as Record<
+              string,
+              { aiJustificationHallucination?: string }
+            >,
+            l4.dimensions.map((d) => d.key),
+          );
+          return (
+            <div className="grading-metrics">
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                Level 4 hallucination rate
+              </div>
+              <div>
+                Hallucination rate:{" "}
+                <strong>{formatMetric(hall?.rate ?? null)}</strong>
+                <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
+                  (= Yes / total · {hall?.yesCount ?? 0}/{hall?.totalCount ?? 0})
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {incompleteBanner}

@@ -27,6 +27,8 @@ export type AiParsedData = {
     phases: AiPhase[];
     totalPhases: number | null;
     missedStepsEvaluation: string;
+    /** Count of missed phases/steps inferred from AI Missed Steps Evaluation */
+    aiMissedPhasesCount: number | null;
   };
   level3: {
     nextActionPrediction: string;
@@ -232,7 +234,57 @@ function parseLevel2(text: string): AiParsedData["level2"] {
     missedStepsEvaluation = safeTrim(missedMatch[1]);
   }
 
-  return { phases, totalPhases, missedStepsEvaluation };
+  const aiMissedPhasesCount = inferAiMissedPhasesCount(missedStepsEvaluation, section);
+
+  return { phases, totalPhases, missedStepsEvaluation, aiMissedPhasesCount };
+}
+
+/**
+ * Infer how many missed phases/steps the AI claims.
+ * Prefers an explicit number; otherwise counts listed items; "None detected" → 0.
+ */
+export function inferAiMissedPhasesCount(
+  missedStepsEvaluation: string,
+  fullLevel2Section: string,
+): number | null {
+  const explicit =
+    /(?:Number of\s+)?missed\s+(?:phases|steps)\s*(?:detected|evaluation)?\s*[:=]?\s*(\d+)/i.exec(
+      fullLevel2Section,
+    ) ||
+    /Total number of missed (?:phases|steps):\s*(\d+)/i.exec(fullLevel2Section);
+  if (explicit) {
+    const n = Number(explicit[1]);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+
+  const text = safeTrim(missedStepsEvaluation);
+  if (!text) return null;
+
+  if (
+    /^(none(\s+detected)?|n\/?a|no(\s+missed)?(\s+(phases|steps))?|nil|null)(\.|!)?$/i.test(
+      text,
+    )
+  ) {
+    return 0;
+  }
+
+  if (/^none\b/i.test(text) && text.length < 80) return 0;
+
+  const numbered = text.match(/(?:^|\n)\s*(?:\d+[.)]|[-*•])\s+\S+/g);
+  if (numbered && numbered.length > 0) return numbered.length;
+
+  const parts = text
+    .split(/\n|;|\|(?=\s)/)
+    .map((s) => safeTrim(s))
+    .filter((s) => s.length > 0)
+    .filter((s) => !/^(missed steps evaluation|none)/i.test(s));
+
+  if (parts.length >= 2) return parts.length;
+  if (parts.length === 1) {
+    // Single sentence that is not "none" → treat as one claimed miss
+    return 1;
+  }
+  return 0;
 }
 
 function parseLevel3(text: string): AiParsedData["level3"] {

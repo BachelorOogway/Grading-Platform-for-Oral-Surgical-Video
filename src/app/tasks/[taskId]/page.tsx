@@ -41,7 +41,12 @@ const EMPTY_PARSED: AiParsedData = {
     totalInstruments: null,
     spatialPositioning: "",
   },
-  level2: { phases: [], totalPhases: null, missedStepsEvaluation: "" },
+  level2: {
+    phases: [],
+    totalPhases: null,
+    missedStepsEvaluation: "",
+    aiMissedPhasesCount: null,
+  },
   level3: { nextActionPrediction: "", clinicalRationale: "", surgeryCompleted: null },
   level4: { dimensions: [] },
 };

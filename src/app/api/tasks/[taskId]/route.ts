@@ -25,6 +25,8 @@ function normalizeParsed(raw: unknown, rawText: string): AiParsedData {
         totalPhases: stored.level2?.totalPhases ?? parsed.level2.totalPhases,
         missedStepsEvaluation:
           stored.level2?.missedStepsEvaluation ?? parsed.level2.missedStepsEvaluation,
+        aiMissedPhasesCount:
+          stored.level2?.aiMissedPhasesCount ?? parsed.level2.aiMissedPhasesCount,
       },
       level3: {
         nextActionPrediction:
