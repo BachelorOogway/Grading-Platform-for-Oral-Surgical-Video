@@ -2,16 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { stringifyJson } from "@/lib/json";
 
-type RouteContext = { params: Promise<{ taskId: string }> };
-
-async function resolveTaskId(params: RouteContext["params"]) {
-  const p = await params;
-  return p?.taskId?.trim() ?? "";
-}
-
-export async function POST(req: Request, { params }: RouteContext) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ taskId: string }> },
+) {
   try {
-    const taskAssignmentId = await resolveTaskId(params);
+    const { taskId } = await params;
+    const taskAssignmentId = taskId?.trim() ?? "";
     if (!taskAssignmentId) {
       return NextResponse.json({ error: "taskId required" }, { status: 400 });
     }
