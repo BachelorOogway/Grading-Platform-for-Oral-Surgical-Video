@@ -21,10 +21,24 @@ export async function GET(req: Request) {
   if (denied) return denied;
 
   const experts = await prisma.expert.findMany({
-    select: { expertId: true, name: true, createdAt: true },
+    select: {
+      expertId: true,
+      name: true,
+      createdAt: true,
+      _count: { select: { assignments: true, grading: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
-  return NextResponse.json({ items: experts });
+
+  return NextResponse.json({
+    items: experts.map((e) => ({
+      expertId: e.expertId,
+      name: e.name,
+      createdAt: e.createdAt,
+      assignmentCount: e._count.assignments,
+      gradingCount: e._count.grading,
+    })),
+  });
 }
 
 /** Admin creates an expert account (required when self-register is disabled). */
@@ -56,4 +70,51 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ ok: true, ...expert });
+}
+
+/**
+ * Remove an expert and their task assignments / grading results.
+ * AiOutput records are kept.
+ */
+export async function DELETE(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
+  const body = await req.json().catch(() => ({}));
+  const expertIdHuman = String(body?.expertId ?? "").trim();
+  if (!expertIdHuman) {
+    return NextResponse.json({ error: "expertId required" }, { status: 400 });
+  }
+
+  const expert = await prisma.expert.findUnique({
+    where: { expertId: expertIdHuman },
+    select: {
+      id: true,
+      expertId: true,
+      name: true,
+      _count: { select: { assignments: true, grading: true } },
+    },
+  });
+
+  if (!expert) {
+    return NextResponse.json({ error: "expert not found" }, { status: 404 });
+  }
+
+  const assignmentCount = expert._count.assignments;
+  const gradingCount = expert._count.grading;
+
+  await prisma.$transaction(async (tx) => {
+    // GradingResult / TaskAssignment expert FKs are RESTRICT — delete dependents first.
+    await tx.gradingResult.deleteMany({ where: { expertId: expert.id } });
+    await tx.taskAssignment.deleteMany({ where: { expertId: expert.id } });
+    await tx.expert.delete({ where: { id: expert.id } });
+  });
+
+  return NextResponse.json({
+    ok: true,
+    expertId: expert.expertId,
+    name: expert.name,
+    deletedAssignments: assignmentCount,
+    deletedGradings: gradingCount,
+  });
 }

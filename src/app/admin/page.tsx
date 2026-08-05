@@ -135,12 +135,19 @@ export default function AdminPage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [experts, setExperts] = useState<
-    { expertId: string; name: string; createdAt: string }[]
+    {
+      expertId: string;
+      name: string;
+      createdAt: string;
+      assignmentCount?: number;
+      gradingCount?: number;
+    }[]
   >([]);
   const [expertName, setExpertName] = useState("");
   const [expertPassword, setExpertPassword] = useState("");
   const [expertInfo, setExpertInfo] = useState<string | null>(null);
   const [expertLoading, setExpertLoading] = useState(false);
+  const [removingExpertId, setRemovingExpertId] = useState<string | null>(null);
 
   const { register, handleSubmit, formState, reset, setValue, setFocus } =
     useForm<UploadForm>({
@@ -281,6 +288,51 @@ export default function AdminPage() {
       setExpertInfo(`创建失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExpertLoading(false);
+    }
+  }
+
+  async function onRemoveExpert(ex: {
+    expertId: string;
+    name: string;
+    assignmentCount?: number;
+    gradingCount?: number;
+  }) {
+    const a = ex.assignmentCount ?? 0;
+    const g = ex.gradingCount ?? 0;
+    const detail =
+      a > 0 || g > 0
+        ? `\n将同时删除其 ${a} 个任务与 ${g} 份评分（AI 输出本身保留）。`
+        : "";
+    const ok = window.confirm(
+      `确定删除专家 ${ex.expertId}（${ex.name}）？${detail}\n此操作不可撤销。`,
+    );
+    if (!ok) return;
+
+    setRemovingExpertId(ex.expertId);
+    setExpertInfo(null);
+    try {
+      const res = await fetch("/api/admin/experts", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expertId: ex.expertId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExpertInfo(`删除失败：${data?.error || res.status}`);
+        return;
+      }
+      setExpertInfo(
+        `已删除 ${data.expertId}（${data.name}）` +
+          (data.deletedGradings || data.deletedAssignments
+            ? `：任务 ${data.deletedAssignments ?? 0}、评分 ${data.deletedGradings ?? 0}`
+            : ""),
+      );
+      await Promise.all([loadExperts(), loadGradings(), loadGlobalMetrics()]);
+    } catch (err) {
+      setExpertInfo(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRemovingExpertId(null);
     }
   }
 
@@ -571,7 +623,9 @@ export default function AdminPage() {
             {expertInfo ? (
               <div
                 className={`notice ${
-                  expertInfo.startsWith("创建失败") ? "notice-danger" : "notice-ok"
+                  expertInfo.startsWith("创建失败") || expertInfo.startsWith("删除失败")
+                    ? "notice-danger"
+                    : "notice-ok"
                 }`}
               >
                 {expertInfo}
@@ -582,10 +636,42 @@ export default function AdminPage() {
             </button>
           </form>
           {experts.length > 0 ? (
-            <ul style={{ marginTop: 14, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+            <ul
+              style={{
+                marginTop: 14,
+                paddingLeft: 0,
+                listStyle: "none",
+                fontSize: 13,
+                lineHeight: 1.7,
+                display: "grid",
+                gap: 8,
+              }}
+            >
               {experts.map((ex) => (
-                <li key={ex.expertId}>
-                  <code>{ex.expertId}</code> — {ex.name}
+                <li
+                  key={ex.expertId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span>
+                    <code>{ex.expertId}</code> — {ex.name}
+                    <span className="muted" style={{ marginLeft: 8 }}>
+                      任务 {ex.assignmentCount ?? 0} · 评分 {ex.gradingCount ?? 0}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={removingExpertId === ex.expertId}
+                    onClick={() => void onRemoveExpert(ex)}
+                  >
+                    {removingExpertId === ex.expertId ? "删除中…" : "删除"}
+                  </button>
                 </li>
               ))}
             </ul>
