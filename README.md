@@ -8,8 +8,8 @@
 
 | 角色 | 能力 |
 |------|------|
-| **专家** | 登录 / 首次注册、查看与领取任务、填写四级评分表并提交、响应重评请求 |
-| **管理员** | 上传 AI 输出、配置独占/共享视频号段、查看已提交评分、请求重评、导出 CSV |
+| **专家** | 登录、查看与领取任务、填写四级评分表并提交、响应重评请求 |
+| **管理员** | 创建专家账号、上传 AI 输出、配置独占/共享视频号段、查看评分与指标、请求重评、导出 CSV |
 
 任务分配规则（可在 `/admin` 调整）：
 
@@ -19,16 +19,17 @@
 ## 技术栈
 
 - **Next.js 15**（App Router）+ **React 18** + **TypeScript**
-- **Prisma** + **SQLite**（本地开发默认）
+- **Prisma** + **PostgreSQL**（本地与 Vercel 均需 Postgres）
 - **Tailwind CSS** + **react-hook-form**
 - **bcryptjs**（专家密码哈希）
 
-## 快速开始
+## 快速开始（本地）
 
 ### 环境要求
 
 - Node.js 18+（建议 20+）
 - npm
+- PostgreSQL（本地 Docker / Neon 免费库均可）
 
 ### 安装与启动
 
@@ -38,10 +39,12 @@ npm install
 
 # 2. 配置环境变量
 cp .env.example .env
+# 编辑 .env：填入 DATABASE_URL；本地可先不设 ADMIN_SECRET
 
-# 3. 生成 Prisma Client 并创建数据库
+# 3. 生成 Prisma Client 并迁移数据库
 npm run prisma:generate
-npm run db:push
+npm run db:deploy
+# 或开发时：npm run db:push
 
 # 4. 启动开发服务器
 npm run dev
@@ -51,23 +54,84 @@ npm run dev
 
 ### 环境变量
 
-复制 `.env.example` 为 `.env`：
-
 | 变量 | 说明 |
 |------|------|
-| `DATABASE_URL` | Prisma 数据库连接，默认 `file:./dev.db`（SQLite） |
-| `ADMIN_SECRET` | 可选；保护部分管理端接口（如导出） |
-| `NEXT_PUBLIC_ADMIN_SECRET` | 可选；前端管理页携带的同一密钥 |
+| `DATABASE_URL` | **必填**。PostgreSQL 连接串 |
+| `ADMIN_SECRET` | **生产必填**。保护 `/admin` 与全部 `/api/admin/*`（httpOnly Cookie） |
+| `ALLOW_EXPERT_SELF_REGISTER` | 默认：本地允许自助注册；Vercel/production **关闭**。设为 `true` 可强制开启 |
 
-本地开发可先留空管理员密钥。
+## 部署到 Vercel（推荐步骤）
+
+### 1. 准备 PostgreSQL
+
+任选其一：
+
+- **[Vercel Postgres / Neon](https://vercel.com/storage/postgres)**：在 Vercel 项目里创建 Storage，会自动注入 `DATABASE_URL`
+- 或自建 Neon / Supabase / RDS，复制连接串
+
+> Neon 若使用 **连接池（pooler）**，Prisma 建议在 URL 加 `?pgbouncer=true`（或按 Neon 文档使用 `prisma://` / 直连做 migrate）。构建时 `prisma migrate deploy` 通常用**直连** URL 更稳。
+
+### 2. 推送代码并导入 Vercel
+
+```bash
+# 若尚未关联远程仓库，先 push 到 GitHub，再在 vercel.com → Add New Project 导入该仓库
+```
+
+或使用 CLI：
+
+```bash
+npm i -g vercel
+vercel login
+vercel
+```
+
+Framework Preset 选 **Next.js**。Root Directory 保持仓库根目录。
+
+### 3. 配置 Environment Variables
+
+在 Vercel → Project → Settings → Environment Variables 中为 **Production**（及 Preview 如需要）设置：
+
+| Name | Value | 注意 |
+|------|--------|------|
+| `DATABASE_URL` | Postgres 连接串 | Storage 集成可自动带入 |
+| `ADMIN_SECRET` | 长随机串 | 例如 `openssl rand -hex 32`，**不要**用 `NEXT_PUBLIC_` 前缀 |
+| `ALLOW_EXPERT_SELF_REGISTER` | `false`（可省略） | 生产默认已关闭自助注册 |
+
+### 4. 部署
+
+点击 Deploy，或：
+
+```bash
+vercel --prod
+```
+
+构建脚本会执行：`prisma generate` → `prisma migrate deploy` → `next build`。
+
+### 5. 上线后初始化
+
+1. 打开 `https://你的域名/admin`，用 `ADMIN_SECRET` 解锁。
+2. 在「专家账号」创建专家（姓名 + 初始密码 ≥8 位），把凭证发给专家。
+3. 上传 AI 输出、配置区间，专家访问 `/login` 开始评分。
+
+## 安全说明（已保护的能力）
+
+| 能力 | 保护方式 |
+|------|----------|
+| 管理后台 UI `/admin` | 解锁后写入 httpOnly Cookie；无 Cookie 只显示解锁页 |
+| 全部 `/api/admin/*`（上传、导出、指标、配置、重评、创建专家等） | `requireAdmin()`：校验 Cookie 或 `x-admin-secret` 头 |
+| 专家自助注册 | Vercel/production 默认 **关闭**；需管理员创建账号 |
+| 密码 | bcrypt 哈希；错误密码不会误建账号；最短 8 位 |
+| 密钥 | `ADMIN_SECRET` 仅服务端；不再使用 `NEXT_PUBLIC_ADMIN_SECRET` |
+
+> 专家任务 API 仍通过客户端持有的 `expertId` 标识身份（与原先一致）。生产环境请仅向受邀专家发放账号，并依赖 HTTPS（Vercel 默认提供）。
 
 ## 使用流程
 
-1. **管理员**打开 `/admin`，粘贴 AI 输出 Markdown，填写 `videoOutputId`（需能解析出视频编号）并上传。
-2. （可选）在管理页配置独占 / 共享号段。
-3. **专家**打开 `/login`：同名 + 正确密码登录；若首次使用该姓名，会自动创建账号（`EXP-001` 起）。
-4. 在 `/dashboard` 领取或打开任务，进入 `/tasks/[taskId]` 对照 AI 输出填写评分表并提交。
-5. 管理员可在管理页查看提交列表、请求重评，或调用导出接口下载结果。
+1. **管理员**打开 `/admin`，用 `ADMIN_SECRET` 解锁；创建专家账号；粘贴 AI 输出并填写 `videoOutputId` 上传。
+2. （可选）配置独占 / 共享号段。
+3. **专家**打开 `/login`，使用管理员发放的姓名与密码登录。
+4. 在 `/dashboard` 领取或打开任务，进入 `/tasks/[taskId]` 填写评分表并提交。
+5. 管理员查看提交列表、全局指标、请求重评，或导出 CSV。
 
 ## 主要页面与 API
 
@@ -76,22 +140,23 @@ npm run dev
 | `/login` | 专家登录 |
 | `/dashboard` | 任务列表与领取 |
 | `/tasks/[taskId]` | 单任务评分 |
-| `/admin` | 管理后台 |
+| `/admin` | 管理后台（需解锁） |
 | `/api/health` | 健康检查 |
-| `/api/auth/login` | 登录 |
+| `/api/auth/login` | 专家登录 |
 | `/api/tasks/*` | 任务查询、领取、提交评分 |
-| `/api/admin/*` | 上传 AI 输出、分配配置、评分列表、重评、导出 |
+| `/api/admin/*` | 需管理员鉴权 |
 
 ## npm 脚本
 
 | 命令 | 说明 |
 |------|------|
 | `npm run dev` | 开发服务器 |
-| `npm run build` | 生产构建 |
+| `npm run build` | 生成 Client + migrate deploy + 生产构建 |
 | `npm run start` | 生产启动 |
 | `npm run lint` | ESLint |
 | `npm run prisma:generate` | 生成 Prisma Client |
-| `npm run db:push` | 将 schema 推送到数据库（无迁移文件时） |
+| `npm run db:deploy` | 生产迁移（`migrate deploy`） |
+| `npm run db:push` | 将 schema 推送到数据库（开发快捷） |
 | `npm run db:migrate` | Prisma migrate（开发） |
 
 ## 项目结构（简要）
@@ -105,9 +170,10 @@ src/
     tasks/[taskId]/   # 评分页
     api/               # REST API
   components/grading/  # 评分表单组件
-  lib/                 # 解析器、评分 schema、分配逻辑、Prisma 等
+  lib/                 # 解析器、评分 schema、分配逻辑、Prisma、adminAuth 等
 prisma/
-  schema.prisma        # 数据模型
+  schema.prisma        # 数据模型（PostgreSQL）
+  migrations/          # 生产迁移
 ```
 
 ## 数据模型（概要）

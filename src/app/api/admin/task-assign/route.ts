@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/adminAuth";
 
 export async function POST(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   const body = await req.json();
   const expertIdHuman = (body?.expertId as string | undefined)?.trim();
   const videoOutputId = (body?.videoOutputId as string | undefined)?.trim();
@@ -40,7 +44,11 @@ export async function POST(req: Request) {
       data: { status: "PENDING" },
       select: { id: true, status: true },
     });
-    return NextResponse.json({ ok: true, taskAssignmentId: updated.id, status: updated.status });
+    return NextResponse.json({
+      ok: true,
+      taskAssignmentId: updated.id,
+      status: updated.status,
+    });
   }
 
   const created = await prisma.taskAssignment.create({
@@ -54,4 +62,3 @@ export async function POST(req: Request) {
     status: created.status,
   });
 }
-

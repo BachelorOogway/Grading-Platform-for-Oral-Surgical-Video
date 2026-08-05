@@ -4,13 +4,19 @@ import {
   saveAssignmentConfig,
   type NumericRange,
 } from "@/lib/assignmentConfig";
+import { requireAdmin } from "@/lib/adminAuth";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const config = await getAssignmentConfig();
   return NextResponse.json(config);
 }
 
 export async function PUT(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   const body = await req.json();
   const exclusiveRanges = (body?.exclusiveRanges ?? []) as NumericRange[];
   const sharedRanges = (body?.sharedRanges ?? []) as NumericRange[];

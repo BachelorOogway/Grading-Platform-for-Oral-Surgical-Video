@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { computeGlobalGradingMetrics } from "@/lib/globalGradingMetrics";
+import { requireAdmin } from "@/lib/adminAuth";
 
 /** @deprecated Prefer /api/admin/global-metrics — kept for compatibility. */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   const results = await prisma.gradingResult.findMany({
     include: {
       taskAssignment: {

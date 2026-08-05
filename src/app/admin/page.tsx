@@ -129,7 +129,18 @@ export default function AdminPage() {
     null,
   );
   const [expandedGradingId, setExpandedGradingId] = useState<string | null>(null);
-  const adminSecret = process.env.NEXT_PUBLIC_ADMIN_SECRET as string | undefined;
+  const [unlocked, setUnlocked] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [unlockSecret, setUnlockSecret] = useState("");
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [experts, setExperts] = useState<
+    { expertId: string; name: string; createdAt: string }[]
+  >([]);
+  const [expertName, setExpertName] = useState("");
+  const [expertPassword, setExpertPassword] = useState("");
+  const [expertInfo, setExpertInfo] = useState<string | null>(null);
+  const [expertLoading, setExpertLoading] = useState(false);
 
   const { register, handleSubmit, formState, reset, setValue, setFocus } =
     useForm<UploadForm>({
@@ -154,10 +165,29 @@ export default function AdminPage() {
     },
   });
 
+  const loadExperts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/experts", { credentials: "include" });
+      if (res.status === 401) {
+        setUnlocked(false);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setExperts(data.items ?? []);
+    } catch {
+      setExperts([]);
+    }
+  }, []);
+
   const loadGradings = useCallback(async () => {
     setGradingsLoading(true);
     try {
-      const res = await fetch("/api/admin/gradings");
+      const res = await fetch("/api/admin/gradings", { credentials: "include" });
+      if (res.status === 401) {
+        setUnlocked(false);
+        setGradings([]);
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       setGradings(data.items ?? []);
     } finally {
@@ -168,7 +198,14 @@ export default function AdminPage() {
   const loadGlobalMetrics = useCallback(async () => {
     setMetricsLoading(true);
     try {
-      const res = await fetch("/api/admin/global-metrics");
+      const res = await fetch("/api/admin/global-metrics", {
+        credentials: "include",
+      });
+      if (res.status === 401) {
+        setUnlocked(false);
+        setGlobalMetrics(null);
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       setGlobalMetrics(data.metrics ?? null);
     } catch {
@@ -179,7 +216,26 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/admin/assignment-config")
+    let cancelled = false;
+    (async () => {
+      setAuthChecking(true);
+      try {
+        const res = await fetch("/api/admin/unlock", { credentials: "include" });
+        if (!cancelled) setUnlocked(res.ok);
+      } catch {
+        if (!cancelled) setUnlocked(false);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    fetch("/api/admin/assignment-config", { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
         const ex = (data.exclusiveRanges ?? []) as NumericRange[];
@@ -198,8 +254,71 @@ export default function AdminPage() {
       .catch(() => {});
     loadGradings();
     loadGlobalMetrics();
-  }, [resetConfig, loadGradings, loadGlobalMetrics]);
+    loadExperts();
+  }, [unlocked, resetConfig, loadGradings, loadGlobalMetrics, loadExperts]);
 
+  async function onCreateExpert(e: React.FormEvent) {
+    e.preventDefault();
+    setExpertLoading(true);
+    setExpertInfo(null);
+    try {
+      const res = await fetch("/api/admin/experts", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: expertName, password: expertPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExpertInfo(`创建失败：${data?.error || res.status}`);
+        return;
+      }
+      setExpertInfo(`已创建 ${data.expertId}（${data.name}）。请把账号与密码发给专家。`);
+      setExpertName("");
+      setExpertPassword("");
+      await loadExperts();
+    } catch (err) {
+      setExpertInfo(`创建失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExpertLoading(false);
+    }
+  }
+
+  async function onUnlock(e: React.FormEvent) {
+    e.preventDefault();
+    setUnlockLoading(true);
+    setUnlockError(null);
+    try {
+      const res = await fetch("/api/admin/unlock", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: unlockSecret }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUnlockError(data?.error || "密钥错误");
+        setUnlocked(false);
+        return;
+      }
+      setUnlockSecret("");
+      setUnlocked(true);
+    } catch (err) {
+      setUnlockError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnlockLoading(false);
+    }
+  }
+
+  async function onLogoutAdmin() {
+    await fetch("/api/admin/unlock", {
+      method: "DELETE",
+      credentials: "include",
+    });
+    setUnlocked(false);
+    setGradings([]);
+    setGlobalMetrics(null);
+  }
   async function onRequestRegrade(item: GradingListItem) {
     const note = window.prompt(
       `退回 ${item.videoOutputId}（${item.expertId}）要求重评。可填写原因（可选）：`,
@@ -212,6 +331,7 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin/regrade", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           taskAssignmentId: item.taskAssignmentId,
@@ -249,6 +369,7 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin/aioutput/upload", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           videoOutputId: normalized,
@@ -326,6 +447,7 @@ export default function AdminPage() {
       ];
       const res = await fetch("/api/admin/assignment-config", {
         method: "PUT",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ exclusiveRanges, sharedRanges }),
       });
@@ -342,7 +464,7 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin/export", {
         method: "GET",
-        headers: adminSecret ? { "x-admin-secret": adminSecret } : undefined,
+        credentials: "include",
       });
       if (!res.ok) throw new Error(`导出失败：${res.status}`);
       const csvText = await res.text();
@@ -360,14 +482,120 @@ export default function AdminPage() {
 
   const numInput = { width: 100 };
 
+  if (authChecking) {
+    return (
+      <main className="app-shell">
+        <div className="app-shell-inner" style={{ maxWidth: 440 }}>
+          <div className="brand-mark">Admin</div>
+          <p className="muted">正在验证管理员会话…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!unlocked) {
+    return (
+      <main className="app-shell">
+        <div className="app-shell-inner" style={{ maxWidth: 440 }}>
+          <div className="brand-mark">Admin</div>
+          <h1 className="page-title">管理员解锁</h1>
+          <p className="page-lead">
+            输入服务器配置的 <code>ADMIN_SECRET</code> 以访问管理后台。密钥仅保存在
+            httpOnly Cookie 中，不会暴露给前端打包代码。
+          </p>
+          <form onSubmit={onUnlock} className="section-block" style={{ display: "grid", gap: 12 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700, fontSize: 13 }}>
+              ADMIN_SECRET
+              <input
+                type="password"
+                value={unlockSecret}
+                onChange={(e) => setUnlockSecret(e.target.value)}
+                autoComplete="current-password"
+                required
+                placeholder="••••••••"
+              />
+            </label>
+            {unlockError ? <div className="notice notice-danger">{unlockError}</div> : null}
+            <button type="submit" className="btn btn-primary btn-block" disabled={unlockLoading}>
+              {unlockLoading ? "验证中…" : "解锁"}
+            </button>
+          </form>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <div className="app-shell-inner" style={{ maxWidth: 860 }}>
-        <div className="brand-mark">Admin</div>
-        <h1 className="page-title">管理后台</h1>
-        <p className="page-lead">配置任务区间、上传 AI 输出、导出指标，并在需要时退回重评。</p>
+        <div className="page-header-row">
+          <div>
+            <div className="brand-mark">Admin</div>
+            <h1 className="page-title">管理后台</h1>
+            <p className="page-lead">配置任务区间、上传 AI 输出、导出指标，并在需要时退回重评。</p>
+          </div>
+          <button type="button" className="btn btn-ghost" onClick={() => void onLogoutAdmin()}>
+            退出管理
+          </button>
+        </div>
 
       <div style={{ display: "grid", gap: 16 }}>
+        <section className="section-block">
+          <h2 className="section-title">专家账号</h2>
+          <p className="page-lead" style={{ marginBottom: 14 }}>
+            生产环境默认关闭专家自助注册。请在此创建账号，再把姓名与初始密码发给专家。
+          </p>
+          <form onSubmit={onCreateExpert} style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <label style={{ display: "grid", gap: 6, fontWeight: 700, fontSize: 13, flex: "1 1 160px" }}>
+                姓名
+                <input
+                  value={expertName}
+                  onChange={(e) => setExpertName(e.target.value)}
+                  required
+                  placeholder="专家姓名"
+                />
+              </label>
+              <label style={{ display: "grid", gap: 6, fontWeight: 700, fontSize: 13, flex: "1 1 160px" }}>
+                初始密码（≥8 位）
+                <input
+                  type="password"
+                  value={expertPassword}
+                  onChange={(e) => setExpertPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+              </label>
+            </div>
+            {expertInfo ? (
+              <div
+                className={`notice ${
+                  expertInfo.startsWith("创建失败") ? "notice-danger" : "notice-ok"
+                }`}
+              >
+                {expertInfo}
+              </div>
+            ) : null}
+            <button type="submit" className="btn btn-primary" disabled={expertLoading}>
+              {expertLoading ? "创建中…" : "创建专家账号"}
+            </button>
+          </form>
+          {experts.length > 0 ? (
+            <ul style={{ marginTop: 14, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+              {experts.map((ex) => (
+                <li key={ex.expertId}>
+                  <code>{ex.expertId}</code> — {ex.name}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
+              暂无专家账号。
+            </p>
+          )}
+        </section>
+
         <section className="section-block">
           <h2 className="section-title">任务区间配置</h2>
           <p className="page-lead" style={{ marginBottom: 14 }}>

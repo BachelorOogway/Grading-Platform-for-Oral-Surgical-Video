@@ -49,12 +49,12 @@ function normalizeParsed(raw: unknown, rawText: string): AiParsedData {
 
 export async function GET(
   req: Request,
-  { params }: { params: Promise<{ taskId: string }> | { taskId: string } },
+  { params }: { params: Promise<{ taskId: string }> },
 ) {
   const url = new URL(req.url);
   const expertId = url.searchParams.get("expertId")?.trim();
 
-  const resolved = await Promise.resolve(params);
+  const resolved = await params;
   const taskAssignmentId = resolved?.taskId?.trim();
   if (!taskAssignmentId) {
     return NextResponse.json({ error: "taskId required" }, { status: 400 });

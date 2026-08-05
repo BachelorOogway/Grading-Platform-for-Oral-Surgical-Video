@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { stringifyJson } from "@/lib/json";
 
-type RouteContext = { params: Promise<{ taskId: string }> | { taskId: string } };
+type RouteContext = { params: Promise<{ taskId: string }> };
 
 async function resolveTaskId(params: RouteContext["params"]) {
-  const p = await Promise.resolve(params);
+  const p = await params;
   return p?.taskId?.trim() ?? "";
 }
 

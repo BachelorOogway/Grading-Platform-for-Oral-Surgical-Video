@@ -11,7 +11,6 @@ function formatExpertId(seq: number) {
 }
 
 async function nextExpertId() {
-  // 简化处理：读取所有 expertId 并取最大后递增（你专家数量不大时足够用）
   const experts = await prisma.expert.findMany({
     select: { expertId: true },
   });
@@ -23,6 +22,17 @@ async function nextExpertId() {
   return formatExpertId(max + 1);
 }
 
+function allowSelfRegister() {
+  const v = process.env.ALLOW_EXPERT_SELF_REGISTER?.trim().toLowerCase();
+  if (v === "false" || v === "0" || v === "no") return false;
+  if (v === "true" || v === "1" || v === "yes") return true;
+  // Default: allow locally, deny on Vercel/production unless explicitly enabled
+  if (process.env.VERCEL === "1" || process.env.NODE_ENV === "production") {
+    return false;
+  }
+  return true;
+}
+
 export async function POST(req: Request) {
   const body = (await req.json()) as LoginBody;
   const name = body?.name?.trim();
@@ -32,10 +42,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "name/password required" }, { status: 400 });
   }
 
-  // 需要你后续安装 bcryptjs（或 bcrypt），这里先给出接口逻辑骨架
+  if (password.length < 8) {
+    return NextResponse.json(
+      { error: "password must be at least 8 characters" },
+      { status: 400 },
+    );
+  }
+
   const bcrypt = await import("bcryptjs");
 
-  // 找同名候选，再逐个比对密码
   const candidates = await prisma.expert.findMany({
     where: { name },
     select: { id: true, expertId: true, passwordHash: true },
@@ -48,7 +63,23 @@ export async function POST(req: Request) {
     }
   }
 
-  // 第一次/密码不匹配：创建新的 Expert
+  if (candidates.length > 0) {
+    return NextResponse.json(
+      { error: "invalid name or password" },
+      { status: 401 },
+    );
+  }
+
+  if (!allowSelfRegister()) {
+    return NextResponse.json(
+      {
+        error:
+          "Self-registration is disabled. Ask an admin to create your expert account.",
+      },
+      { status: 403 },
+    );
+  }
+
   const expertId = await nextExpertId();
   const passwordHash = await bcrypt.hash(password, 10);
 
@@ -61,6 +92,5 @@ export async function POST(req: Request) {
     select: { expertId: true },
   });
 
-  return NextResponse.json({ expertId: expert.expertId });
+  return NextResponse.json({ expertId: expert.expertId, created: true });
 }
-

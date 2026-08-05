@@ -1,10 +1,15 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // native = local; rhel-openssl-3.0.x = Vercel Node runtime
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Runtime: use pooled DATABASE_URL (Neon / Vercel injects this)
+  url       = env("DATABASE_URL")
+  // Migrations: use direct connection (Neon injects DATABASE_URL_UNPOOLED)
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model AssignmentConfig {

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { parseAiOutputToParsedData } from "@/lib/aiOutputParser";
 import { stringifyJson } from "@/lib/json";
 import { normalizeVideoOutputId, parseVideoNumber } from "@/lib/videoId";
+import { requireAdmin } from "@/lib/adminAuth";
 
 async function findExistingByVideoId(normalizedId: string) {
   const targetNum = parseVideoNumber(normalizedId);
@@ -24,6 +25,9 @@ async function findExistingByVideoId(normalizedId: string) {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   try {
     const body = await req.json();
     const rawId = (body?.videoOutputId as string | undefined)?.trim() ?? "";
@@ -67,7 +71,6 @@ export async function POST(req: Request) {
       aiOutput = await prisma.aiOutput.update({
         where: { id: existing.id },
         data: {
-          // Keep canonical exclusive id
           videoOutputId,
           rawText: aiOutputText,
           parsedData: parsedDataStr,

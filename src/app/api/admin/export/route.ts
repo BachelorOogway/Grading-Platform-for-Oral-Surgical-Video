@@ -11,6 +11,7 @@ import {
   level3SignalsFromGradingData,
 } from "@/lib/level3Metrics";
 import { level4HallucinationFromGradingData } from "@/lib/level4Metrics";
+import { requireAdmin } from "@/lib/adminAuth";
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return '""';
@@ -289,14 +290,8 @@ function globalSummaryLines(m: GlobalGradingMetrics): string[] {
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const secret = req.headers.get("x-admin-secret") || url.searchParams.get("secret");
-
-  if (process.env.ADMIN_SECRET) {
-    if (!secret || secret !== process.env.ADMIN_SECRET) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   const results = await prisma.gradingResult.findMany({
     include: {
