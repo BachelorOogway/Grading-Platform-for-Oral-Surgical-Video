@@ -180,14 +180,19 @@ function parseLevel2(text: string): AiParsedData["level2"] {
   );
 
   const phases: AiPhase[] = [];
+  // Accept both compact [00:00:00 to 00:00:18] and spaced [ 00 : 00 : 00 to 00 : 00 : 18 ]
   const phaseRegex =
-    /\[(\d{2}:\d{2}:\d{2})\s+to\s+(\d{2}:\d{2}:\d{2})\]\s*-\s*([^\r\n]+)/g;
+    /\[\s*(\d{1,2})\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})\s+to\s+(\d{1,2})\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})\s*\]\s*-\s*([^\r\n]+)/gi;
   let m: RegExpExecArray | null;
   while ((m = phaseRegex.exec(section))) {
+    const pad = (n: string) => String(Number(n)).padStart(2, "0");
+    const description = safeTrim(m[7])
+      .split(/\[Human Expert Evaluation/i)[0]
+      .trim();
     phases.push({
-      aiStartTime: m[1],
-      aiEndTime: m[2],
-      description: safeTrim(m[3]),
+      aiStartTime: `${pad(m[1])}:${pad(m[2])}:${pad(m[3])}`,
+      aiEndTime: `${pad(m[4])}:${pad(m[5])}:${pad(m[6])}`,
+      description: safeTrim(description),
     });
   }
 
