@@ -14,7 +14,7 @@ export async function GET(req: Request) {
         include: { expert: true, aiOutput: true },
       },
     },
-    orderBy: { submittedAt: "desc" },
+    orderBy: { submittedAt: "asc" },
   });
 
   const csv = buildGroundTruthCsv(

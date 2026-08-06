@@ -1017,8 +1017,8 @@ export default function AdminPage() {
         <section className="section-block">
           <h2 className="section-title">导出 CSV</h2>
           <p className="page-lead" style={{ marginBottom: 14 }}>
-            指标 CSV：全局摘要 + 每条评分明细。Ground truth CSV：每个视频的校正后信息（AI
-            正确项保留；错误项用专家更正 / 补全遗漏）。
+            指标 CSV：全局摘要 + 每条评分明细。Ground truth CSV：每个视频一行（多专家时取
+            最早提交的第一位专家），含校正后 L1–L3 与 Level 4 专家打分。
           </p>
           <div style={{ display: "grid", gap: 10 }}>
             <button

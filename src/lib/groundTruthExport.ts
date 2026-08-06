@@ -1,4 +1,5 @@
 import { parseJsonSafe } from "@/lib/json";
+import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return '""';
@@ -6,7 +7,7 @@ function csvEscape(value: unknown) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-type GroundTruthRowInput = {
+export type GroundTruthRowInput = {
   videoOutputId: string;
   expertId: string;
   submittedAt: string;
@@ -15,10 +16,47 @@ type GroundTruthRowInput = {
 };
 
 /**
- * Build a per-submission "canonical / corrected" view of the video:
+ * One row per video: keep the earliest submission (first expert to grade).
+ * Tie-break by expertId ascending.
+ */
+export function pickFirstExpertPerVideo(
+  rows: GroundTruthRowInput[],
+): GroundTruthRowInput[] {
+  const byVideo = new Map<string, GroundTruthRowInput>();
+  for (const row of rows) {
+    const key = row.videoOutputId;
+    const prev = byVideo.get(key);
+    if (!prev) {
+      byVideo.set(key, row);
+      continue;
+    }
+    const tNew = Date.parse(row.submittedAt) || 0;
+    const tOld = Date.parse(prev.submittedAt) || 0;
+    if (
+      tNew < tOld ||
+      (tNew === tOld && row.expertId.localeCompare(prev.expertId) < 0)
+    ) {
+      byVideo.set(key, row);
+    }
+  }
+  return Array.from(byVideo.values()).sort((a, b) =>
+    a.videoOutputId.localeCompare(b.videoOutputId),
+  );
+}
+
+/**
+ * Build per-video ground truth:
  * AI value kept when expert marked correct; otherwise expert correction.
+ * Level 4 expert scores included. Multi-expert videos → first submission only.
  */
 export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
+  const selected = pickFirstExpertPerVideo(rows);
+
+  const l4Headers = LEVEL4_DIMENSIONS.flatMap((d) => [
+    `l4_${d.key}_expert_score`,
+    `l4_${d.key}_hallucination`,
+  ]);
+
   const headers = [
     "videoOutputId",
     "expertId",
@@ -42,11 +80,13 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     "nomenclature_correction",
     "surgery_completed_expert",
     "safety_check_pass",
+    ...l4Headers,
+    "l4_hallucination_rate",
   ];
 
   const lines = [headers.map(csvEscape).join(",")];
 
-  for (const row of rows) {
+  for (const row of selected) {
     const gd: any =
       typeof row.gradingData === "string"
         ? parseJsonSafe(row.gradingData, {})
@@ -63,6 +103,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     const l1 = gd.level1 ?? {};
     const l2 = gd.level2 ?? {};
     const l3 = gd.level3 ?? {};
+    const l4 = gd.level4 ?? {};
 
     const procedureFinal =
       l1.procedureType ??
@@ -151,6 +192,29 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
         ? "expert"
         : "";
 
+    const l4Dims: any[] = Array.isArray(l4.dimensions) ? l4.dimensions : [];
+    const l4ByKey = new Map<string, any>();
+    for (const d of l4Dims) {
+      if (d?.key) l4ByKey.set(String(d.key), d);
+    }
+
+    const l4Cols = LEVEL4_DIMENSIONS.flatMap((def) => {
+      const d = l4ByKey.get(def.key);
+      const score = d?.expertScore ?? "";
+      const hall =
+        d?.aiJustificationHallucination === true ||
+        d?.aiJustificationHallucination === "yes"
+          ? "yes"
+          : d?.aiJustificationHallucination === false ||
+              d?.aiJustificationHallucination === "no"
+            ? "no"
+            : "";
+      return [score, hall];
+    });
+
+    const hallRate =
+      typeof l4.hallucinationRate === "number" ? l4.hallucinationRate : "";
+
     lines.push(
       [
         row.videoOutputId,
@@ -183,6 +247,8 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
           : l3.safetyCheckPass === false
             ? "fail"
             : "",
+        ...l4Cols,
+        hallRate,
       ]
         .map(csvEscape)
         .join(","),
