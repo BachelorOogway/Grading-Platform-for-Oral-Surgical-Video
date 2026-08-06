@@ -1074,7 +1074,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                         <input
                           type="radio"
                           value={n}
-                          {...register(`${base}.expertScore` as const, {
+                          {...register(`${base}.expertScore` as any, {
                             required: true,
                             valueAsNumber: true,
                           })}
@@ -1097,7 +1097,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                     <input
                       type="radio"
                       value="yes"
-                      {...register(`${base}.aiJustificationHallucination` as const, {
+                      {...register(`${base}.aiJustificationHallucination` as any, {
                         required: true,
                       })}
                       disabled={completed}
@@ -1108,7 +1108,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                     <input
                       type="radio"
                       value="no"
-                      {...register(`${base}.aiJustificationHallucination` as const, {
+                      {...register(`${base}.aiJustificationHallucination` as any, {
                         required: true,
                       })}
                       disabled={completed}
