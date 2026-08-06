@@ -532,6 +532,27 @@ export default function AdminPage() {
     }
   }
 
+  async function onExportGroundTruth() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/export/ground-truth", {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`导出失败：${res.status}`);
+      const csvText = await res.text();
+      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "video_ground_truth.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const numInput = { width: 100 };
 
   if (authChecking) {
@@ -994,18 +1015,29 @@ export default function AdminPage() {
         />
 
         <section className="section-block">
-          <h2 className="section-title">导出统计 CSV</h2>
+          <h2 className="section-title">导出 CSV</h2>
           <p className="page-lead" style={{ marginBottom: 14 }}>
-            CSV 开头为 Level 1–4 与专家间 ICC 全局摘要，随后为每条评分明细。
+            指标 CSV：全局摘要 + 每条评分明细。Ground truth CSV：每个视频的校正后信息（AI
+            正确项保留；错误项用专家更正 / 补全遗漏）。
           </p>
-          <button
-            type="button"
-            onClick={onExport}
-            disabled={loading}
-            className="btn btn-primary btn-block"
-          >
-            {loading ? "导出中..." : "Export Data"}
-          </button>
+          <div style={{ display: "grid", gap: 10 }}>
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={loading}
+              className="btn btn-primary btn-block"
+            >
+              {loading ? "导出中..." : "Export Metrics CSV"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void onExportGroundTruth()}
+              disabled={loading}
+              className="btn btn-ghost btn-block"
+            >
+              {loading ? "导出中..." : "Export Ground Truth CSV"}
+            </button>
+          </div>
         </section>
 
         <section className="section-block">

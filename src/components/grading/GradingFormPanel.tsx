@@ -18,6 +18,7 @@ import {
 import {
   buildLevel1LiveMetrics,
   countIncorrectItems,
+  filledStringList,
   formatMetric,
   getGradingIncompleteFields,
   gradingFieldDomId,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/gradingForm";
 import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
+import { MissedItemsField } from "@/components/grading/MissedItemsField";
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/;
 
@@ -222,6 +224,27 @@ export function GradingFormPanel({
     });
   }, [instrumentWrong, setValue, completed]);
 
+  const watchedMissedInstruments = watch("level1.missedInstruments") ?? [""];
+  const watchedMissedPhases = watch("level2.missedPhases") ?? [""];
+
+  useEffect(() => {
+    if (completed) return;
+    const n = filledStringList(watchedMissedInstruments).length;
+    setValue("level1.missedInstrumentsCount", n, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+  }, [watchedMissedInstruments, setValue, completed]);
+
+  useEffect(() => {
+    if (completed) return;
+    const n = filledStringList(watchedMissedPhases).length;
+    setValue("level2.missedPhasesCount", n, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+  }, [watchedMissedPhases, setValue, completed]);
+
   // Jump after red highlights paint
   useEffect(() => {
     if (!jumpToId || !showErrors) return;
@@ -319,7 +342,35 @@ export function GradingFormPanel({
             name="level1.procedureTypeCorrect"
             register={register}
             disabled={completed}
+            onCorrectChange={(v) => {
+              if (v === "correct") {
+                setValue("level1.procedureTypeCorrection", "", { shouldValidate: true });
+              }
+            }}
           />
+          {watch("level1.procedureTypeCorrect") === "incorrect" ? (
+            <FieldAnchor
+              id="l1-procedureType-correction"
+              error={hasError("l1-procedureType-correction")}
+              style={{ marginTop: 8 }}
+            >
+              <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                Correct procedure type
+                <input
+                  type="text"
+                  {...register("level1.procedureTypeCorrection", { required: true })}
+                  disabled={completed}
+                  placeholder="Enter the correct procedure type"
+                  style={{
+                    padding: 10,
+                    border: hasError("l1-procedureType-correction")
+                      ? "1px solid var(--danger-line)"
+                      : undefined,
+                  }}
+                />
+              </label>
+            </FieldAnchor>
+          ) : null}
         </FieldAnchor>
 
         <div className="grading-section-title">
@@ -348,6 +399,9 @@ export function GradingFormPanel({
                     setValue(`level1.structures.${i}.incorrectReason` as any, "", {
                       shouldValidate: true,
                     });
+                    setValue(`level1.structures.${i}.expertCorrection` as any, "", {
+                      shouldValidate: true,
+                    });
                   }
                 }}
               />
@@ -360,6 +414,32 @@ export function GradingFormPanel({
                     required
                   />
                 </div>
+              ) : null}
+              {isIncorrect &&
+              watchedStructures?.[i]?.incorrectReason === "misrecognition_present" ? (
+                <FieldAnchor
+                  id={`l1-structure-${i}-correction`}
+                  error={hasError(`l1-structure-${i}-correction`)}
+                  style={{ marginTop: 8 }}
+                >
+                  <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                    Correct structure name
+                    <input
+                      type="text"
+                      {...register(`level1.structures.${i}.expertCorrection` as any, {
+                        required: true,
+                      })}
+                      disabled={completed}
+                      placeholder="Enter the correct structure name"
+                      style={{
+                        padding: 10,
+                        border: hasError(`l1-structure-${i}-correction`)
+                          ? "1px solid var(--danger-line)"
+                          : undefined,
+                      }}
+                    />
+                  </label>
+                </FieldAnchor>
               ) : null}
             </FieldAnchor>
           );
@@ -435,6 +515,9 @@ export function GradingFormPanel({
                     setValue(`level1.instruments.${i}.incorrectReason` as any, "", {
                       shouldValidate: true,
                     });
+                    setValue(`level1.instruments.${i}.expertCorrection` as any, "", {
+                      shouldValidate: true,
+                    });
                   }
                 }}
               />
@@ -447,6 +530,32 @@ export function GradingFormPanel({
                     required
                   />
                 </div>
+              ) : null}
+              {isIncorrect &&
+              watchedInstruments?.[i]?.incorrectReason === "misrecognition_present" ? (
+                <FieldAnchor
+                  id={`l1-instrument-${i}-correction`}
+                  error={hasError(`l1-instrument-${i}-correction`)}
+                  style={{ marginTop: 8 }}
+                >
+                  <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                    Correct instrument name
+                    <input
+                      type="text"
+                      {...register(`level1.instruments.${i}.expertCorrection` as any, {
+                        required: true,
+                      })}
+                      disabled={completed}
+                      placeholder="Enter the correct instrument name"
+                      style={{
+                        padding: 10,
+                        border: hasError(`l1-instrument-${i}-correction`)
+                          ? "1px solid var(--danger-line)"
+                          : undefined,
+                      }}
+                    />
+                  </label>
+                </FieldAnchor>
               ) : null}
             </FieldAnchor>
           );
@@ -475,25 +584,25 @@ export function GradingFormPanel({
           error={hasError("l1-missedInstruments")}
           style={{ marginTop: 8, padding: 8, borderRadius: 8 }}
         >
-          <label style={{ display: "grid", gap: 4 }}>
-            Number of Instrument Missed
-            <input
-              type="number"
-              step={1}
-              {...register("level1.missedInstrumentsCount", {
-                required: true,
-                valueAsNumber: true,
-                min: 0,
-              })}
-              disabled={completed}
-              style={{
-                padding: 10,
-                border: hasError("l1-missedInstruments")
-                  ? "1px solid var(--danger-line)"
-                  : undefined,
-              }}
-            />
-          </label>
+          <MissedItemsField
+            label="Missed instruments (not listed by AI)"
+            values={watchedMissedInstruments}
+            disabled={completed}
+            error={hasError("l1-missedInstruments")}
+            countLabel="Missed instrument count"
+            onChange={(next) => {
+              setValue("level1.missedInstruments", next, {
+                shouldValidate: true,
+                shouldDirty: true,
+              });
+            }}
+          />
+          <input
+            type="hidden"
+            {...register("level1.missedInstrumentsCount", {
+              valueAsNumber: true,
+            })}
+          />
         </FieldAnchor>
 
         <div className="grading-metrics">
@@ -538,7 +647,37 @@ export function GradingFormPanel({
             name="level1.spatialPositioningCorrect"
             register={register}
             disabled={completed}
+            onCorrectChange={(v) => {
+              if (v === "correct") {
+                setValue("level1.spatialPositioningCorrection", "", {
+                  shouldValidate: true,
+                });
+              }
+            }}
           />
+          {watch("level1.spatialPositioningCorrect") === "incorrect" ? (
+            <FieldAnchor
+              id="l1-spatial-correction"
+              error={hasError("l1-spatial-correction")}
+              style={{ marginTop: 8 }}
+            >
+              <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                Correct spatial positioning
+                <textarea
+                  rows={2}
+                  {...register("level1.spatialPositioningCorrection", { required: true })}
+                  disabled={completed}
+                  placeholder="Enter the correct spatial positioning"
+                  style={{
+                    padding: 10,
+                    border: hasError("l1-spatial-correction")
+                      ? "1px solid var(--danger-line)"
+                      : undefined,
+                  }}
+                />
+              </label>
+            </FieldAnchor>
+          ) : null}
         </FieldAnchor>
       </div>
 
@@ -616,6 +755,11 @@ export function GradingFormPanel({
                       setValue(`level2.phases.${i}.phaseErrorType` as any, "", {
                         shouldValidate: true,
                       });
+                      setValue(
+                        `level2.phases.${i}.expertCorrectDescription` as any,
+                        "",
+                        { shouldValidate: true },
+                      );
                     }
                   }}
                 />
@@ -696,6 +840,34 @@ export function GradingFormPanel({
                   })}
                 />
               )}
+
+              {contentIncorrect &&
+              phaseWatch?.phaseErrorType === "misrecognition_present" ? (
+                <FieldAnchor
+                  id={`l2-phase-${i}-correction`}
+                  error={hasError(`l2-phase-${i}-correction`)}
+                  style={{ marginTop: 8 }}
+                >
+                  <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                    Correct phase description
+                    <textarea
+                      rows={2}
+                      {...register(
+                        `level2.phases.${i}.expertCorrectDescription` as any,
+                        { required: true },
+                      )}
+                      disabled={completed}
+                      placeholder="Enter the correct description for this phase"
+                      style={{
+                        padding: 10,
+                        border: hasError(`l2-phase-${i}-correction`)
+                          ? "1px solid var(--danger-line)"
+                          : undefined,
+                      }}
+                    />
+                  </label>
+                </FieldAnchor>
+              ) : null}
 
               <FieldAnchor
                 id={`l2-phase-${i}-trueStart`}
@@ -874,25 +1046,23 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
               AI Missed Steps / Phases content: {l2.missedStepsEvaluation}
             </div>
           ) : null}
-          <label style={{ display: "grid", gap: 4 }}>
-            Expert missed phases count (your count)
-            <input
-              type="number"
-              step={1}
-              {...register("level2.missedPhasesCount", {
-                required: true,
-                valueAsNumber: true,
-                min: 0,
-              })}
-              disabled={completed}
-              style={{
-                padding: 10,
-                border: hasError("l2-missedPhases")
-                  ? "1px solid var(--danger-line)"
-                  : undefined,
-              }}
-            />
-          </label>
+          <MissedItemsField
+            label="Missed phases (not detected by AI)"
+            values={watchedMissedPhases}
+            disabled={completed}
+            error={hasError("l2-missedPhases")}
+            countLabel="Missed phase count"
+            onChange={(next) => {
+              setValue("level2.missedPhases", next, {
+                shouldValidate: true,
+                shouldDirty: true,
+              });
+            }}
+          />
+          <input
+            type="hidden"
+            {...register("level2.missedPhasesCount", { valueAsNumber: true })}
+          />
         </FieldAnchor>
         <FieldAnchor
           id="l2-missedSteps"
@@ -904,7 +1074,37 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
             name="level2.missedStepsDetectedCorrect"
             register={register}
             disabled={completed}
+            onCorrectChange={(v) => {
+              if (v === "correct") {
+                setValue("level2.missedStepsCorrection", "", {
+                  shouldValidate: true,
+                });
+              }
+            }}
           />
+          {watch("level2.missedStepsDetectedCorrect") === "incorrect" ? (
+            <FieldAnchor
+              id="l2-missedSteps-correction"
+              error={hasError("l2-missedSteps-correction")}
+              style={{ marginTop: 8 }}
+            >
+              <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                Correct missed-steps content
+                <textarea
+                  rows={2}
+                  {...register("level2.missedStepsCorrection", { required: true })}
+                  disabled={completed}
+                  placeholder="Describe the correct missed steps / phases"
+                  style={{
+                    padding: 10,
+                    border: hasError("l2-missedSteps-correction")
+                      ? "1px solid var(--danger-line)"
+                      : undefined,
+                  }}
+                />
+              </label>
+            </FieldAnchor>
+          ) : null}
         </FieldAnchor>
       </div>
 
@@ -966,7 +1166,35 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
             name="level3.nextActionAccurate"
             register={register}
             disabled={completed}
+            onCorrectChange={(v) => {
+              if (v === "correct") {
+                setValue("level3.nextActionCorrection", "", { shouldValidate: true });
+              }
+            }}
           />
+          {watch("level3.nextActionAccurate") === "incorrect" ? (
+            <FieldAnchor
+              id="l3-nextAction-correction"
+              error={hasError("l3-nextAction-correction")}
+              style={{ marginTop: 8 }}
+            >
+              <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                Correct next action
+                <textarea
+                  rows={3}
+                  {...register("level3.nextActionCorrection", { required: true })}
+                  disabled={completed}
+                  placeholder="Enter the medically correct next action"
+                  style={{
+                    padding: 10,
+                    border: hasError("l3-nextAction-correction")
+                      ? "1px solid var(--danger-line)"
+                      : undefined,
+                  }}
+                />
+              </label>
+            </FieldAnchor>
+          ) : null}
         </FieldAnchor>
         <FieldAnchor
           id="l3-nomenclature"
@@ -978,7 +1206,37 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
             name="level3.nomenclatureStandardized"
             register={register}
             disabled={completed}
+            onCorrectChange={(v) => {
+              if (v === "correct") {
+                setValue("level3.nomenclatureCorrection", "", {
+                  shouldValidate: true,
+                });
+              }
+            }}
           />
+          {watch("level3.nomenclatureStandardized") === "incorrect" ? (
+            <FieldAnchor
+              id="l3-nomenclature-correction"
+              error={hasError("l3-nomenclature-correction")}
+              style={{ marginTop: 8 }}
+            >
+              <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                Correct nomenclature
+                <textarea
+                  rows={2}
+                  {...register("level3.nomenclatureCorrection", { required: true })}
+                  disabled={completed}
+                  placeholder="Enter the standardized nomenclature"
+                  style={{
+                    padding: 10,
+                    border: hasError("l3-nomenclature-correction")
+                      ? "1px solid var(--danger-line)"
+                      : undefined,
+                  }}
+                />
+              </label>
+            </FieldAnchor>
+          ) : null}
         </FieldAnchor>
         <FieldAnchor
           id="l3-safety"

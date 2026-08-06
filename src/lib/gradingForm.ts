@@ -20,16 +20,24 @@ export type IncorrectReason =
 export type ItemJudgement = {
   correct: Correctness;
   incorrectReason?: IncorrectReason | "";
+  /** Expert's corrected name when AI item is wrong (esp. misrecognition) */
+  expertCorrection?: string;
 };
 
 export type Level1Form = {
   procedureTypeCorrect: Correctness;
+  /** Required when procedureTypeCorrect === incorrect */
+  procedureTypeCorrection: string;
   structures: ItemJudgement[];
   wrongStructuresCount: number;
   instruments: ItemJudgement[];
   wrongInstrumentsCount: number;
+  /** Expert-entered missed instrument names; count = non-empty entries */
+  missedInstruments: string[];
   missedInstrumentsCount: number;
   spatialPositioningCorrect: Correctness;
+  /** Required when spatialPositioningCorrect === incorrect */
+  spatialPositioningCorrection: string;
 };
 
 export type Level2PhaseErrorType = IncorrectReason | "";
@@ -44,20 +52,28 @@ export type Level2PhaseForm = {
    * hallucinates when the target is absent | misrecognition when the target is present
    */
   phaseErrorType: Level2PhaseErrorType;
+  /** Correct description when content is incorrect (esp. misrecognition) */
+  expertCorrectDescription: string;
   trueStartTime: string;
   trueEndTime: string;
 };
 
 export type Level2Form = {
   phases: Level2PhaseForm[];
+  /** Expert-entered missed phase descriptions; count = non-empty entries */
+  missedPhases: string[];
   missedPhasesCount: number;
   missedStepsDetectedCorrect: Correctness;
+  /** Correction when missed-steps content is incorrect */
+  missedStepsCorrection: string;
 };
 
 export type Level3Form = {
   surgeryCompleted: "yes" | "no";
   nextActionAccurate: Correctness;
+  nextActionCorrection: string;
   nomenclatureStandardized: Correctness;
+  nomenclatureCorrection: string;
   safetyCheckPass: "pass" | "fail";
   hallucinationNotes: string;
 };
@@ -92,39 +108,55 @@ export function buildDefaultGradingForm(parsed: AiParsedData): GradingForm {
   return {
     level1: {
       procedureTypeCorrect: "correct",
+      procedureTypeCorrection: "",
       structures: parsed.level1.structures.map(() => ({
         correct: "correct",
         incorrectReason: "",
+        expertCorrection: "",
       })),
       wrongStructuresCount: 0,
       instruments: parsed.level1.instruments.map(() => ({
         correct: "correct",
         incorrectReason: "",
+        expertCorrection: "",
       })),
       wrongInstrumentsCount: 0,
+      missedInstruments: [""],
       missedInstrumentsCount: 0,
       spatialPositioningCorrect: "correct",
+      spatialPositioningCorrection: "",
     },
     level2: {
       phases: parsed.level2.phases.map((p) => ({
         segmentationCorrect: "correct",
         contentCorrect: "correct",
         phaseErrorType: "" as const,
+        expertCorrectDescription: "",
         trueStartTime: p.aiStartTime || "",
         trueEndTime: p.aiEndTime || "",
       })),
+      missedPhases: [""],
       missedPhasesCount: 0,
       missedStepsDetectedCorrect: "correct",
+      missedStepsCorrection: "",
     },
     level3: {
       surgeryCompleted: "yes",
       nextActionAccurate: "correct",
+      nextActionCorrection: "",
       nomenclatureStandardized: "correct",
+      nomenclatureCorrection: "",
       safetyCheckPass: "pass",
       hallucinationNotes: "N/A",
     },
     level4: { dimensions: l4Dims },
   };
+}
+
+/** Non-empty trimmed strings from a dynamic list */
+export function filledStringList(items: string[] | undefined | null): string[] {
+  if (!items) return [];
+  return items.map((s) => String(s ?? "").trim()).filter((s) => s.length > 0);
 }
 
 /** Classic Precision = correct / total, where total = correct + incorrect */
@@ -201,11 +233,16 @@ export function buildLevel1LiveMetrics(values: GradingForm) {
   const instrumentTotal = instrumentCorrect + instrumentWrong;
   const instrumentHalluc = countHallucinationAbsent(instruments);
   const instrumentMisrecog = countMisrecognitionPresent(instruments);
-  const missed = Number(values.level1?.missedInstrumentsCount) || 0;
+  const missed = filledStringList(values.level1?.missedInstruments).length;
+  // Prefer list length; fall back to legacy numeric field
+  const missedCount =
+    missed > 0 || Array.isArray(values.level1?.missedInstruments)
+      ? missed
+      : Number(values.level1?.missedInstrumentsCount) || 0;
   const instrumentPrecision = calcPrecision(instrumentCorrect, instrumentTotal);
   const instrumentHallucRate = calcRate(instrumentHalluc, instrumentTotal);
   const instrumentMisrecogRate = calcRate(instrumentMisrecog, instrumentTotal);
-  const instrumentRecall = calcRecall(instrumentCorrect, missed);
+  const instrumentRecall = calcRecall(instrumentCorrect, missedCount);
   const instrumentF1 = calcF1(instrumentPrecision, instrumentRecall);
 
   return {
@@ -225,7 +262,7 @@ export function buildLevel1LiveMetrics(values: GradingForm) {
       total: instrumentTotal,
       hallucinationAbsent: instrumentHalluc,
       misrecognitionPresent: instrumentMisrecog,
-      missed,
+      missed: missedCount,
       precision: instrumentPrecision,
       hallucinationRate: instrumentHallucRate,
       misrecognitionRate: instrumentMisrecogRate,
@@ -241,13 +278,32 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
   return {
     level1: {
       procedureTypeCorrect: values.level1.procedureTypeCorrect === "correct",
+      procedureType:
+        values.level1.procedureTypeCorrect === "correct"
+          ? parsed.level1.procedureType
+          : values.level1.procedureTypeCorrection.trim(),
+      procedureTypeAi: parsed.level1.procedureType,
+      procedureTypeCorrection:
+        values.level1.procedureTypeCorrect === "incorrect"
+          ? values.level1.procedureTypeCorrection.trim()
+          : "",
       structures: parsed.level1.structures.map((s, i) => {
         const j = values.level1.structures[i];
+        const incorrect = j?.correct === "incorrect";
         return {
           name: s.name,
           correct: j?.correct === "correct",
-          incorrectReason:
-            j?.correct === "incorrect" ? j?.incorrectReason || null : null,
+          incorrectReason: incorrect ? j?.incorrectReason || null : null,
+          expertCorrection:
+            incorrect && String(j?.expertCorrection ?? "").trim()
+              ? String(j?.expertCorrection).trim()
+              : null,
+          finalName:
+            j?.correct === "correct"
+              ? s.name
+              : j?.incorrectReason === "hallucination_absent"
+                ? null
+                : String(j?.expertCorrection ?? "").trim() || null,
         };
       }),
       wrongStructuresCount: metrics.structures.wrong,
@@ -260,11 +316,21 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       structureMisrecognitionRate: metrics.structures.misrecognitionRate,
       instruments: parsed.level1.instruments.map((inst, i) => {
         const j = values.level1.instruments[i];
+        const incorrect = j?.correct === "incorrect";
         return {
           name: inst.name,
           correct: j?.correct === "correct",
-          incorrectReason:
-            j?.correct === "incorrect" ? j?.incorrectReason || null : null,
+          incorrectReason: incorrect ? j?.incorrectReason || null : null,
+          expertCorrection:
+            incorrect && String(j?.expertCorrection ?? "").trim()
+              ? String(j?.expertCorrection).trim()
+              : null,
+          finalName:
+            j?.correct === "correct"
+              ? inst.name
+              : j?.incorrectReason === "hallucination_absent"
+                ? null
+                : String(j?.expertCorrection ?? "").trim() || null,
         };
       }),
       wrongInstrumentsCount: metrics.instruments.wrong,
@@ -272,7 +338,8 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       instrumentTotalCount: metrics.instruments.total,
       instrumentHallucinationAbsentCount: metrics.instruments.hallucinationAbsent,
       instrumentMisrecognitionPresentCount: metrics.instruments.misrecognitionPresent,
-      missedInstrumentsCount: values.level1.missedInstrumentsCount,
+      missedInstruments: filledStringList(values.level1.missedInstruments),
+      missedInstrumentsCount: metrics.instruments.missed,
       instrumentPrecision: metrics.instruments.precision,
       instrumentHallucinationRate: metrics.instruments.hallucinationRate,
       instrumentMisrecognitionRate: metrics.instruments.misrecognitionRate,
@@ -280,11 +347,21 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       instrumentF1: metrics.instruments.f1,
       spatialPositioningCorrect:
         values.level1.spatialPositioningCorrect === "correct",
+      spatialPositioning:
+        values.level1.spatialPositioningCorrect === "correct"
+          ? parsed.level1.spatialPositioning
+          : values.level1.spatialPositioningCorrection.trim(),
+      spatialPositioningAi: parsed.level1.spatialPositioning,
+      spatialPositioningCorrection:
+        values.level1.spatialPositioningCorrect === "incorrect"
+          ? values.level1.spatialPositioningCorrection.trim()
+          : "",
     },
     level2: {
       phases: parsed.level2.phases.map((p, i) => {
         const phase = values.level2.phases[i];
         const needsError = phase?.contentCorrect === "incorrect";
+        const expertDesc = String(phase?.expertCorrectDescription ?? "").trim();
         return {
           description: p.description,
           aiStartTime: p.aiStartTime,
@@ -292,6 +369,13 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
           segmentationCorrect: phase?.segmentationCorrect === "correct",
           contentCorrect: phase?.contentCorrect === "correct",
           phaseErrorType: needsError ? phase?.phaseErrorType || null : null,
+          expertCorrectDescription: needsError && expertDesc ? expertDesc : null,
+          finalDescription:
+            phase?.contentCorrect === "correct"
+              ? p.description
+              : phase?.phaseErrorType === "hallucination_absent"
+                ? null
+                : expertDesc || null,
           trueStartTime: phase?.trueStartTime ?? "",
           trueEndTime: phase?.trueEndTime ?? "",
           temporalIoU: temporalIoU(
@@ -303,9 +387,18 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
         };
       }),
       aiMissedPhasesCount: parsed.level2.aiMissedPhasesCount,
-      missedPhasesCount: values.level2.missedPhasesCount,
+      missedPhases: filledStringList(values.level2.missedPhases),
+      missedPhasesCount: filledStringList(values.level2.missedPhases).length,
       missedStepsDetectedCorrect:
         values.level2.missedStepsDetectedCorrect === "correct",
+      missedStepsCorrection:
+        values.level2.missedStepsDetectedCorrect === "incorrect"
+          ? values.level2.missedStepsCorrection.trim()
+          : "",
+      missedStepsFinal:
+        values.level2.missedStepsDetectedCorrect === "correct"
+          ? parsed.level2.missedStepsEvaluation
+          : values.level2.missedStepsCorrection.trim(),
       metrics: (() => {
         const m = computeLevel2TemporalMetrics(
           parsed.level2.phases.map((p, i) => ({
@@ -337,10 +430,25 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
     level3: {
       surgeryCompleted: values.level3.surgeryCompleted === "yes",
       nextActionAccurate: values.level3.nextActionAccurate === "correct",
+      nextAction:
+        values.level3.nextActionAccurate === "correct"
+          ? parsed.level3.nextActionPrediction
+          : values.level3.nextActionCorrection.trim(),
+      nextActionAi: parsed.level3.nextActionPrediction,
+      nextActionCorrection:
+        values.level3.nextActionAccurate === "incorrect"
+          ? values.level3.nextActionCorrection.trim()
+          : "",
       nomenclatureStandardized:
         values.level3.nomenclatureStandardized === "correct",
+      nomenclatureCorrection:
+        values.level3.nomenclatureStandardized === "incorrect"
+          ? values.level3.nomenclatureCorrection.trim()
+          : "",
       safetyCheckPass: values.level3.safetyCheckPass === "pass",
       hallucinationNotes: values.level3.hallucinationNotes,
+      clinicalRationaleAi: parsed.level3.clinicalRationale,
+      surgeryCompletedAi: parsed.level3.surgeryCompleted,
     },
     level4: {
       dimensions: LEVEL4_DIMENSIONS.map((def) => {
@@ -410,10 +518,20 @@ export function hydrateGradingForm(
   const savedDimsRecord =
     l4.dimensions && !Array.isArray(l4.dimensions) ? l4.dimensions : null;
 
+  const missedInstrumentsSaved = Array.isArray(l1.missedInstruments)
+    ? l1.missedInstruments.map((x: unknown) => String(x ?? ""))
+    : null;
+  const missedPhasesSaved = Array.isArray(l2.missedPhases)
+    ? l2.missedPhases.map((x: unknown) => String(x ?? ""))
+    : null;
+
   return {
     level1: {
       procedureTypeCorrect: toCorrectness(
         l1.procedureTypeCorrect ?? base.level1.procedureTypeCorrect,
+      ),
+      procedureTypeCorrection: String(
+        l1.procedureTypeCorrection ?? base.level1.procedureTypeCorrection ?? "",
       ),
       structures: parsed.level1.structures.map((_, i) => {
         const s = savedStructures[i] ?? base.level1.structures[i];
@@ -422,6 +540,8 @@ export function hydrateGradingForm(
           correct,
           incorrectReason:
             correct === "incorrect" ? toIncorrectReason(s?.incorrectReason) : "",
+          expertCorrection:
+            correct === "incorrect" ? String(s?.expertCorrection ?? "") : "",
         };
       }),
       wrongStructuresCount: Number(l1.wrongStructuresCount) || 0,
@@ -432,12 +552,28 @@ export function hydrateGradingForm(
           correct,
           incorrectReason:
             correct === "incorrect" ? toIncorrectReason(s?.incorrectReason) : "",
+          expertCorrection:
+            correct === "incorrect" ? String(s?.expertCorrection ?? "") : "",
         };
       }),
       wrongInstrumentsCount: Number(l1.wrongInstrumentsCount) || 0,
-      missedInstrumentsCount: Number(l1.missedInstrumentsCount) || 0,
+      missedInstruments:
+        missedInstrumentsSaved && missedInstrumentsSaved.length > 0
+          ? missedInstrumentsSaved
+          : Number(l1.missedInstrumentsCount) > 0
+            ? Array.from({ length: Number(l1.missedInstrumentsCount) }, () => "")
+            : [""],
+      missedInstrumentsCount:
+        missedInstrumentsSaved != null
+          ? filledStringList(missedInstrumentsSaved).length
+          : Number(l1.missedInstrumentsCount) || 0,
       spatialPositioningCorrect: toCorrectness(
         l1.spatialPositioningCorrect ?? base.level1.spatialPositioningCorrect,
+      ),
+      spatialPositioningCorrection: String(
+        l1.spatialPositioningCorrection ??
+          base.level1.spatialPositioningCorrection ??
+          "",
       ),
     },
     level2: {
@@ -449,7 +585,6 @@ export function hydrateGradingForm(
         );
         const needsError = contentCorrect === "incorrect";
         const err = String(p?.phaseErrorType ?? "");
-        // migrate old 4-way labels if present
         const normalized =
           err === "hallucination_absent" ||
           err === "seg_correct_hallucination_absent" ||
@@ -467,6 +602,9 @@ export function hydrateGradingForm(
           segmentationCorrect,
           contentCorrect,
           phaseErrorType,
+          expertCorrectDescription: needsError
+            ? String(p?.expertCorrectDescription ?? "")
+            : "",
           trueStartTime: String(
             p?.trueStartTime ||
               parsed.level2.phases[i]?.aiStartTime ||
@@ -477,9 +615,21 @@ export function hydrateGradingForm(
           ),
         };
       }),
-      missedPhasesCount: Number(l2.missedPhasesCount) || 0,
+      missedPhases:
+        missedPhasesSaved && missedPhasesSaved.length > 0
+          ? missedPhasesSaved
+          : Number(l2.missedPhasesCount) > 0
+            ? Array.from({ length: Number(l2.missedPhasesCount) }, () => "")
+            : [""],
+      missedPhasesCount:
+        missedPhasesSaved != null
+          ? filledStringList(missedPhasesSaved).length
+          : Number(l2.missedPhasesCount) || 0,
       missedStepsDetectedCorrect: toCorrectness(
         l2.missedStepsDetectedCorrect ?? base.level2.missedStepsDetectedCorrect,
+      ),
+      missedStepsCorrection: String(
+        l2.missedStepsCorrection ?? base.level2.missedStepsCorrection ?? "",
       ),
     },
     level3: {
@@ -496,8 +646,14 @@ export function hydrateGradingForm(
       nextActionAccurate: toCorrectness(
         l3.nextActionAccurate ?? base.level3.nextActionAccurate,
       ),
+      nextActionCorrection: String(
+        l3.nextActionCorrection ?? base.level3.nextActionCorrection ?? "",
+      ),
       nomenclatureStandardized: toCorrectness(
         l3.nomenclatureStandardized ?? base.level3.nomenclatureStandardized,
+      ),
+      nomenclatureCorrection: String(
+        l3.nomenclatureCorrection ?? base.level3.nomenclatureCorrection ?? "",
       ),
       safetyCheckPass:
         l3.safetyCheckPass === true || l3.safetyCheckPass === "pass"
@@ -603,20 +759,29 @@ export function getGradingIncompleteFields(
   const l1 = values.level1;
   if (!hasChoice(l1.procedureTypeCorrect)) {
     missing.push({ id: "l1-procedureType", message: "Level 1: Procedure Type" });
+  } else if (
+    l1.procedureTypeCorrect === "incorrect" &&
+    !String(l1.procedureTypeCorrection ?? "").trim()
+  ) {
+    missing.push({
+      id: "l1-procedureType-correction",
+      message: "Level 1: correct Procedure Type",
+    });
   }
   if (!hasChoice(l1.spatialPositioningCorrect)) {
     missing.push({ id: "l1-spatial", message: "Level 1: Spatial Positioning" });
-  }
-  if (
-    l1.missedInstrumentsCount === undefined ||
-    l1.missedInstrumentsCount === null ||
-    Number.isNaN(Number(l1.missedInstrumentsCount))
+  } else if (
+    l1.spatialPositioningCorrect === "incorrect" &&
+    !String(l1.spatialPositioningCorrection ?? "").trim()
   ) {
     missing.push({
-      id: "l1-missedInstruments",
-      message: "Level 1: Number of Instrument Missed",
+      id: "l1-spatial-correction",
+      message: "Level 1: correct Spatial Positioning",
     });
   }
+
+  // Missed instruments: empty list is allowed (count 0); no required fill
+  void l1.missedInstruments;
 
   parsed.level1.structures.forEach((s, i) => {
     const item = l1.structures?.[i];
@@ -632,6 +797,16 @@ export function getGradingIncompleteFields(
       missing.push({
         id: `l1-structure-${i}-reason`,
         message: `Level 1 structure error type: ${s.name}`,
+      });
+    }
+    if (
+      item.correct === "incorrect" &&
+      item.incorrectReason === "misrecognition_present" &&
+      !String(item.expertCorrection ?? "").trim()
+    ) {
+      missing.push({
+        id: `l1-structure-${i}-correction`,
+        message: `Level 1 correct structure name: ${s.name}`,
       });
     }
   });
@@ -650,6 +825,16 @@ export function getGradingIncompleteFields(
       missing.push({
         id: `l1-instrument-${i}-reason`,
         message: `Level 1 instrument error type: ${inst.name}`,
+      });
+    }
+    if (
+      item.correct === "incorrect" &&
+      item.incorrectReason === "misrecognition_present" &&
+      !String(item.expertCorrection ?? "").trim()
+    ) {
+      missing.push({
+        id: `l1-instrument-${i}-correction`,
+        message: `Level 1 correct instrument name: ${inst.name}`,
       });
     }
   });
@@ -683,19 +868,30 @@ export function getGradingIncompleteFields(
     ) {
       missing.push({ id: `l2-phase-${i}-error`, message: `${label}: content error type` });
     }
+    if (
+      phase?.contentCorrect === "incorrect" &&
+      phase.phaseErrorType === "misrecognition_present" &&
+      !String(phase.expertCorrectDescription ?? "").trim()
+    ) {
+      missing.push({
+        id: `l2-phase-${i}-correction`,
+        message: `${label}: correct phase description`,
+      });
+    }
   });
 
-  if (
-    values.level2.missedPhasesCount === undefined ||
-    values.level2.missedPhasesCount === null ||
-    Number.isNaN(Number(values.level2.missedPhasesCount))
-  ) {
-    missing.push({ id: "l2-missedPhases", message: "Level 2: missed phases count" });
-  }
   if (!hasChoice(values.level2.missedStepsDetectedCorrect)) {
     missing.push({
       id: "l2-missedSteps",
       message: "Level 2: missed steps detected correctly",
+    });
+  } else if (
+    values.level2.missedStepsDetectedCorrect === "incorrect" &&
+    !String(values.level2.missedStepsCorrection ?? "").trim()
+  ) {
+    missing.push({
+      id: "l2-missedSteps-correction",
+      message: "Level 2: correct missed-steps content",
     });
   }
 
@@ -705,9 +901,25 @@ export function getGradingIncompleteFields(
   }
   if (!hasChoice(l3.nextActionAccurate)) {
     missing.push({ id: "l3-nextAction", message: "Level 3: Next Action accurate" });
+  } else if (
+    l3.nextActionAccurate === "incorrect" &&
+    !String(l3.nextActionCorrection ?? "").trim()
+  ) {
+    missing.push({
+      id: "l3-nextAction-correction",
+      message: "Level 3: correct Next Action",
+    });
   }
   if (!hasChoice(l3.nomenclatureStandardized)) {
     missing.push({ id: "l3-nomenclature", message: "Level 3: nomenclature standardized" });
+  } else if (
+    l3.nomenclatureStandardized === "incorrect" &&
+    !String(l3.nomenclatureCorrection ?? "").trim()
+  ) {
+    missing.push({
+      id: "l3-nomenclature-correction",
+      message: "Level 3: correct nomenclature note",
+    });
   }
   if (l3.safetyCheckPass !== "pass" && l3.safetyCheckPass !== "fail") {
     missing.push({ id: "l3-safety", message: "Level 3: Safety Check" });
