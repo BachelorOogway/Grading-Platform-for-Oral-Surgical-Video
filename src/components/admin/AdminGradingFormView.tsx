@@ -134,8 +134,16 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
             {dimensions.map((d) => (
               <li key={d.key || d.label}>
                 {d.label || d.key}: AI {d.aiScore ?? "—"} · expert{" "}
-                {d.expertScore ?? "—"} · justification hallucination{" "}
+                {d.expertScore ?? "—"} · hallucination{" "}
                 {yn(d.aiJustificationHallucination)}
+                {d.aiJustification ? (
+                  <>
+                    <br />
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      AI note: {d.aiJustification}
+                    </span>
+                  </>
+                ) : null}
               </li>
             ))}
           </ul>

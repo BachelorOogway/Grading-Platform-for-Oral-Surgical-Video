@@ -1,3 +1,5 @@
+import { LEVEL4_DIMENSIONS } from "./level4Dimensions";
+
 export type AiPhase = {
   aiStartTime: string;
   aiEndTime: string;
@@ -39,39 +41,6 @@ export type AiParsedData = {
     dimensions: AiLevel4Dimension[];
   };
 };
-
-const LEVEL4_DEFS: Array<{ key: string; label: string; pattern: RegExp }> = [
-  {
-    key: "respectForTissue",
-    label: "Respect for tissue",
-    pattern: /^Respect for tissue:\s*(\d)\s*-\s*(.+)$/im,
-  },
-  {
-    key: "sutureNeedleHandling",
-    label: "Suture/needle handling",
-    pattern: /^Suture\/needle handling:\s*(\d)\s*-\s*(.+)$/im,
-  },
-  {
-    key: "timeAndMotion",
-    label: "Time and motion",
-    pattern: /^Time and motion:\s*(\d)\s*-\s*(.+)$/im,
-  },
-  {
-    key: "flowOfOperation",
-    label: "Flow of operation",
-    pattern: /^Flow of operation:\s*(\d)\s*-\s*(.+)$/im,
-  },
-  {
-    key: "qualityOfFinalProduct",
-    label: "Quality of final product",
-    pattern: /^Quality of final product:\s*(\d)\s*-\s*(.+)$/im,
-  },
-  {
-    key: "overallPerformance",
-    label: "Overall performance",
-    pattern: /^Overall performance:\s*(\d)\s*-\s*(.+)$/im,
-  },
-];
 
 function safeTrim(s: string) {
   return (s ?? "").replace(/\s+/g, " ").trim();
@@ -329,14 +298,21 @@ function parseLevel4(text: string): AiParsedData["level4"] {
   const section = sectionMatch?.[0] ?? "";
 
   const dimensions: AiLevel4Dimension[] = [];
-  for (const def of LEVEL4_DEFS) {
-    const dm = def.pattern.exec(section);
-    if (dm) {
+  for (const def of LEVEL4_DIMENSIONS) {
+    let matched: RegExpExecArray | null = null;
+    for (const pattern of def.patterns) {
+      matched = pattern.exec(section);
+      if (matched) break;
+    }
+    if (matched) {
+      const justification = safeTrim(matched[2]).split(
+        /\[Human Expert Evaluation/i,
+      )[0];
       dimensions.push({
         key: def.key,
         label: def.label,
-        aiScore: Number(dm[1]),
-        justification: safeTrim(dm[2]),
+        aiScore: Number(matched[1]),
+        justification: safeTrim(justification),
       });
     }
   }

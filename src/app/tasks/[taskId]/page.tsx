@@ -203,7 +203,7 @@ export default function TaskGradingPage() {
             <p className="page-lead" style={{ marginBottom: 12 }}>
               {completed
                 ? "本任务已提交，以下内容只读保留。"
-                : "填写会自动保存在本机。AI 输出已嵌在各项旁，方便对照评分。"}
+                : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>
           <button

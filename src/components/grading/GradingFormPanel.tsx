@@ -25,6 +25,7 @@ import {
   type GradingForm,
 } from "@/lib/gradingForm";
 import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
+import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/;
 
@@ -185,7 +186,6 @@ export function GradingFormPanel({
 }: Props) {
   const l1 = parsed.level1;
   const l2 = parsed.level2;
-  const l4 = parsed.level4;
   const [showErrors, setShowErrors] = useState(false);
   const [jumpToId, setJumpToId] = useState<string | null>(null);
 
@@ -1029,8 +1029,14 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
       </div>
 
       <div className="grading-card">
-        <div className="grading-card-title">Level 4 — Skill Assessment</div>
-        {l4.dimensions.map((d) => {
+        <div className="grading-card-title">
+          Level 4 — Skills Evaluation & Grounding Test
+        </div>
+        <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
+          请根据手术视频独立打分（1–5）。量表锚点见各维度下方；请勿参考 AI
+          分数。若认为该维度相关描述存在幻觉，勾选 Hallucination = Yes。
+        </p>
+        {LEVEL4_DIMENSIONS.map((d) => {
           const base = `level4.dimensions.${d.key}`;
           const scoreErr = hasError(`l4-${d.key}-score`);
           const hallErr = hasError(`l4-${d.key}-hallucination`);
@@ -1040,23 +1046,35 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
               className={`grading-sub${scoreErr || hallErr ? " grading-error" : ""}`}
             >
               <div style={{ fontWeight: 700 }}>{d.label}</div>
-              <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "6px 0", lineHeight: 1.5 }}>
-                AI: {d.aiScore}/5 — {d.justification}
-              </div>
+              <ul
+                style={{
+                  margin: "8px 0 10px",
+                  paddingLeft: 18,
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                  color: "var(--ink-soft)",
+                }}
+              >
+                {d.rubrics.map((r) => (
+                  <li key={r.score}>
+                    <strong>{r.score}:</strong> {r.text}
+                  </li>
+                ))}
+              </ul>
               <FieldAnchor
                 id={`l4-${d.key}-score`}
                 error={scoreErr}
                 style={{ marginBottom: 8, padding: 6, borderRadius: 6 }}
               >
                 <label style={{ display: "grid", gap: 6 }}>
-                  Expert Score (1-5)
+                  Expert Given Score (1–5)
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {[1, 2, 3, 4, 5].map((n) => (
                       <label key={n} style={{ display: "flex", gap: 4, alignItems: "center" }}>
                         <input
                           type="radio"
                           value={n}
-                          {...register(`${base}.expertScore` as any, {
+                          {...register(`${base}.expertScore` as const, {
                             required: true,
                             valueAsNumber: true,
                           })}
@@ -1074,12 +1092,12 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                 style={{ padding: 6, borderRadius: 6 }}
               >
                 <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-                  <legend>Hallucination in AI justification</legend>
+                  <legend>Hallucination (Yes / No)</legend>
                   <label style={{ marginRight: 12 }}>
                     <input
                       type="radio"
                       value="yes"
-                      {...register(`${base}.aiJustificationHallucination` as any, {
+                      {...register(`${base}.aiJustificationHallucination` as const, {
                         required: true,
                       })}
                       disabled={completed}
@@ -1090,7 +1108,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                     <input
                       type="radio"
                       value="no"
-                      {...register(`${base}.aiJustificationHallucination` as any, {
+                      {...register(`${base}.aiJustificationHallucination` as const, {
                         required: true,
                       })}
                       disabled={completed}
@@ -1110,7 +1128,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
               string,
               { aiJustificationHallucination?: string }
             >,
-            l4.dimensions.map((d) => d.key),
+            LEVEL4_DIMENSIONS.map((d) => d.key),
           );
           return (
             <div className="grading-metrics">

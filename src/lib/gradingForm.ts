@@ -1,5 +1,10 @@
 import type { AiParsedData } from "./aiOutputParser";
 import {
+  LEVEL4_DIMENSIONS,
+  LEVEL4_DIMENSION_KEYS,
+  level4LabelForKey,
+} from "./level4Dimensions";
+import {
   computeLevel2ContentMetrics,
   computeLevel2TemporalMetrics,
   temporalIoU,
@@ -58,8 +63,9 @@ export type Level3Form = {
 };
 
 export type Level4DimensionForm = {
-  expertScore: 1 | 2 | 3 | 4 | 5;
-  aiJustificationHallucination: "yes" | "no";
+  /** Null until expert selects — avoid biasing judgment */
+  expertScore: 1 | 2 | 3 | 4 | 5 | null;
+  aiJustificationHallucination: "yes" | "no" | "";
 };
 
 export type GradingForm = {
@@ -72,26 +78,15 @@ export type GradingForm = {
 };
 
 const defaultL4Dim = (): Level4DimensionForm => ({
-  expertScore: 1,
-  aiJustificationHallucination: "no",
+  expertScore: null,
+  aiJustificationHallucination: "",
 });
 
 export function buildDefaultGradingForm(parsed: AiParsedData): GradingForm {
+  // Always present all OSATS dimensions from LEVEL4_DIMENSIONS (AI may miss some).
   const l4Dims: Record<string, Level4DimensionForm> = {};
-  for (const d of parsed.level4.dimensions) {
-    l4Dims[d.key] = defaultL4Dim();
-  }
-  if (Object.keys(l4Dims).length === 0) {
-    for (const key of [
-      "respectForTissue",
-      "sutureNeedleHandling",
-      "timeAndMotion",
-      "flowOfOperation",
-      "qualityOfFinalProduct",
-      "overallPerformance",
-    ]) {
-      l4Dims[key] = defaultL4Dim();
-    }
+  for (const def of LEVEL4_DIMENSIONS) {
+    l4Dims[def.key] = defaultL4Dim();
   }
 
   return {
@@ -348,20 +343,25 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       hallucinationNotes: values.level3.hallucinationNotes,
     },
     level4: {
-      dimensions: parsed.level4.dimensions.map((d) => ({
-        key: d.key,
-        label: d.label,
-        aiScore: d.aiScore,
-        expertScore: values.level4.dimensions[d.key]?.expertScore ?? 1,
-        aiJustificationHallucination:
-          values.level4.dimensions[d.key]?.aiJustificationHallucination ===
-          "yes",
-      })),
+      dimensions: LEVEL4_DIMENSIONS.map((def) => {
+        const ai = parsed.level4.dimensions.find((d) => d.key === def.key);
+        const v = values.level4.dimensions[def.key];
+        return {
+          key: def.key,
+          label: def.label,
+          aiScore: ai?.aiScore ?? null,
+          aiJustification: ai?.justification ?? "",
+          expertScore: v?.expertScore ?? null,
+          aiJustificationHallucination:
+            v?.aiJustificationHallucination === "yes",
+        };
+      }),
       ...(() => {
         let yesCount = 0;
         let totalCount = 0;
-        for (const d of parsed.level4.dimensions) {
-          const v = values.level4.dimensions[d.key]?.aiJustificationHallucination;
+        for (const def of LEVEL4_DIMENSIONS) {
+          const v =
+            values.level4.dimensions[def.key]?.aiJustificationHallucination;
           if (v === "yes") {
             yesCount += 1;
             totalCount += 1;
@@ -511,11 +511,15 @@ export function hydrateGradingForm(
     },
     level4: {
       dimensions: Object.fromEntries(
-        Object.keys(base.level4.dimensions).map((key) => {
+        LEVEL4_DIMENSION_KEYS.map((key) => {
           const fromArr = savedDims.find((d) => d?.key === key);
           const fromRec = savedDimsRecord?.[key];
           const d = fromArr ?? fromRec ?? base.level4.dimensions[key];
-          const expertScore = Number(d?.expertScore) || 1;
+          const rawScore = Number(d?.expertScore);
+          const expertScore =
+            [1, 2, 3, 4, 5].includes(rawScore)
+              ? (rawScore as 1 | 2 | 3 | 4 | 5)
+              : null;
           const hall =
             d?.aiJustificationHallucination === true ||
             d?.aiJustificationHallucination === "yes"
@@ -523,12 +527,12 @@ export function hydrateGradingForm(
               : d?.aiJustificationHallucination === false ||
                   d?.aiJustificationHallucination === "no"
                 ? "no"
-                : base.level4.dimensions[key].aiJustificationHallucination;
+                : "";
           return [
             key,
             {
-              expertScore: Math.min(5, Math.max(1, expertScore)) as 1 | 2 | 3 | 4 | 5,
-              aiJustificationHallucination: hall as "yes" | "no",
+              expertScore,
+              aiJustificationHallucination: hall as "yes" | "no" | "",
             },
           ];
         }),
@@ -712,14 +716,10 @@ export function getGradingIncompleteFields(
     missing.push({ id: "l3-notes", message: "Level 3: Hallucination Notes" });
   }
 
-  const dimKeys =
-    parsed.level4.dimensions.length > 0
-      ? parsed.level4.dimensions.map((d) => d.key)
-      : Object.keys(values.level4.dimensions ?? {});
+  const dimKeys = LEVEL4_DIMENSION_KEYS;
   for (const key of dimKeys) {
     const d = values.level4.dimensions?.[key];
-    const label =
-      parsed.level4.dimensions.find((x) => x.key === key)?.label ?? key;
+    const label = level4LabelForKey(key);
     if (![1, 2, 3, 4, 5].includes(Number(d?.expertScore))) {
       missing.push({ id: `l4-${key}-score`, message: `Level 4: ${label} expert score` });
     }

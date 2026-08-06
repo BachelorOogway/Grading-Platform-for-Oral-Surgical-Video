@@ -1,7 +1,8 @@
 /**
- * Level 4 OSATS metrics.
- * - AI vs expert: MAE, LCC, SROCC (pooled over forms × dimensions)
+ * Level 4 OSATS metrics (6 dimensions; Use of Assistants excluded).
+ * - AI vs expert: MAE, LCC, SROCC (pooled over forms × dimensions with both scores)
  * - Inter-expert (SHARED videos): ICC(2,1), Fisher-z averaged over expert pairs
+ * - Hallucination rate: mean of per-form (Yes / labeled dimensions)
  */
 
 export type ScorePair = {

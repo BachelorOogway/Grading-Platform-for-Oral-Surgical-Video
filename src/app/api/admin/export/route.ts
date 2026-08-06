@@ -11,6 +11,7 @@ import {
   level3SignalsFromGradingData,
 } from "@/lib/level3Metrics";
 import { level4HallucinationFromGradingData } from "@/lib/level4Metrics";
+import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import { requireAdmin } from "@/lib/adminAuth";
 
 function csvEscape(value: unknown) {
@@ -355,6 +356,11 @@ export async function GET(req: Request) {
     "l4_hallucination_yes_count",
     "l4_hallucination_total_count",
     "l4_hallucination_rate",
+    ...LEVEL4_DIMENSIONS.flatMap((d) => [
+      `l4_${d.key}_ai_score`,
+      `l4_${d.key}_expert_score`,
+      `l4_${d.key}_hallucination`,
+    ]),
   ];
 
   const lines: string[] = [
@@ -374,6 +380,46 @@ export async function GET(req: Request) {
     const l2sig = level2SignalsFromGradingData(r.gradingData);
     const l3sig = level3Forms[i];
     const l4hall = level4HallucinationFromGradingData(r.gradingData);
+    const l4dims: any[] = Array.isArray(gd.level4?.dimensions)
+      ? gd.level4.dimensions
+      : [];
+    const l4ByKey = new Map<string, any>();
+    for (const d of l4dims) {
+      if (d?.key) l4ByKey.set(String(d.key), d);
+    }
+    // Fallback AI scores from stored AiOutput.parsedData when row lacks aiScore
+    let parsedL4ByKey = new Map<string, number>();
+    try {
+      const rawParsed = ta.aiOutput?.parsedData;
+      const parsedObj =
+        typeof rawParsed === "string" ? JSON.parse(rawParsed) : rawParsed;
+      const pdims = parsedObj?.level4?.dimensions;
+      if (Array.isArray(pdims)) {
+        for (const d of pdims) {
+          const k = String(d?.key ?? "");
+          const s = Number(d?.aiScore);
+          if (k && Number.isFinite(s)) parsedL4ByKey.set(k, s);
+        }
+      }
+    } catch {
+      parsedL4ByKey = new Map();
+    }
+
+    const l4ScoreCols = LEVEL4_DIMENSIONS.flatMap((def) => {
+      const row = l4ByKey.get(def.key);
+      let ai = row?.aiScore;
+      if (ai == null || ai === "") ai = parsedL4ByKey.get(def.key) ?? "";
+      const expert = row?.expertScore ?? "";
+      const hall =
+        row?.aiJustificationHallucination === true ||
+        row?.aiJustificationHallucination === "yes"
+          ? "yes"
+          : row?.aiJustificationHallucination === false ||
+              row?.aiJustificationHallucination === "no"
+            ? "no"
+            : "";
+      return [ai, expert, hall];
+    });
 
     const structures = countStructureInputs(l1);
     const instruments = countInstrumentInputs(l1);
@@ -482,6 +528,7 @@ export async function GET(req: Request) {
       l4hall?.yesCount ?? "",
       l4hall?.totalCount ?? "",
       l4hall?.rate ?? "",
+      ...l4ScoreCols,
     ];
 
     lines.push(row.map(csvEscape).join(","));

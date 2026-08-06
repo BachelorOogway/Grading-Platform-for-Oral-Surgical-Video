@@ -930,7 +930,7 @@ export default function AdminPage() {
 
         <MetricSection
           title="Level 4 · AI vs Expert"
-          lead="全部评分表 × 全部 OSATS 维度上，AI 分数与专家分数的对齐指标。"
+          lead="全部评分表 × 全部 OSATS 维度（6 维，不含 Use of Assistants）上，AI 分数与专家分数的对齐指标（MAE / LCC / SROCC）及幻觉率。专家表单不展示 AI 分，以免干扰判断。"
           loading={metricsLoading}
           empty={!globalMetrics || globalMetrics.formCount === 0}
           summary={
