@@ -19,6 +19,7 @@ import {
 import { GradingFormPanel } from "@/components/grading/GradingFormPanel";
 import { PriorAlignedForm } from "@/components/grading/PriorAlignedForm";
 import { disagreePathSet } from "@/components/grading/PriorCategoricalColumn";
+import { useConsensusRowAlign } from "@/components/grading/useConsensusRowAlign";
 import type { CategoricalDisagreement } from "@/lib/categoricalFields";
 
 type PriorGrader = {
@@ -223,6 +224,15 @@ export default function TaskGradingPage() {
     setSubmitError("还有未填完的必填项，已跳转到第一项并用红色标出");
   }
 
+  const g1 = priorGraders.find((p) => p.graderSlot === 1);
+  const g2 = priorGraders.find((p) => p.graderSlot === 2);
+
+  useConsensusRowAlign(
+    Boolean(isTiebreaker && g1 && g2 && !loading && task),
+    "[data-consensus-align-root]",
+    [highlightPaths.size, selectedDisc.size, formComplete, submitting],
+  );
+
   if (loading || !task) {
     return (
       <main className="app-shell">
@@ -230,9 +240,6 @@ export default function TaskGradingPage() {
       </main>
     );
   }
-
-  const g1 = priorGraders.find((p) => p.graderSlot === 1);
-  const g2 = priorGraders.find((p) => p.graderSlot === 2);
 
   const formPanel = (
     <GradingFormPanel
@@ -254,6 +261,12 @@ export default function TaskGradingPage() {
           ? `Grader 3 · ${task.expert.expertId} (you)`
           : undefined
       }
+      domPrefix={isTiebreaker ? "g3" : ""}
+      hideLiveMetrics={isTiebreaker}
+      highlightPaths={isTiebreaker ? highlightPaths : undefined}
+      discrepancySolvePaths={isTiebreaker ? selectedDisc : undefined}
+      showDiscrepancySolve={isTiebreaker && !completed}
+      onToggleDiscrepancySolve={isTiebreaker ? toggleDiscSolve : undefined}
     />
   );
 
@@ -279,7 +292,7 @@ export default function TaskGradingPage() {
               {completed
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
-                  ? "三位评分表并排对照。前两位分歧项在其表单中黄标；红按钮标记 discrepancy solve（不多数决）。你的表单不显示前两位答案。"
+                  ? "三位评分表并排对照。前两位分歧项黄标；在你的表单用红色单选标记 discrepancy solve（不多数决）。未标记项按 2:1 多数决。"
                   : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>
@@ -325,6 +338,7 @@ export default function TaskGradingPage() {
 
         {isTiebreaker && g1 && g2 ? (
           <div
+            data-consensus-align-root
             style={{
               display: "grid",
               gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 1fr) minmax(320px, 1.15fr)",
@@ -338,18 +352,14 @@ export default function TaskGradingPage() {
               parsed={parsed}
               gradingData={g1.gradingData}
               highlightPaths={highlightPaths}
-              discrepancySolvePaths={selectedDisc}
-              onToggleDiscrepancySolve={toggleDiscSolve}
-              showDiscrepancySolve={!completed}
+              domPrefix="g1"
             />
             <PriorAlignedForm
               title={`Grader 2 · ${g2.expertId} (${g2.name})`}
               parsed={parsed}
               gradingData={g2.gradingData}
               highlightPaths={highlightPaths}
-              discrepancySolvePaths={selectedDisc}
-              onToggleDiscrepancySolve={toggleDiscSolve}
-              showDiscrepancySolve={!completed}
+              domPrefix="g2"
             />
             <div>{formPanel}</div>
           </div>

@@ -12,9 +12,7 @@ type Props = {
   parsed: AiParsedData;
   gradingData: unknown;
   highlightPaths: Set<string>;
-  discrepancySolvePaths: Set<string>;
-  onToggleDiscrepancySolve: (path: string) => void;
-  showDiscrepancySolve?: boolean;
+  domPrefix: string;
 };
 
 /** Read-only prior grader form, field-aligned with the active grader's form. */
@@ -23,9 +21,7 @@ export function PriorAlignedForm({
   parsed,
   gradingData,
   highlightPaths,
-  discrepancySolvePaths,
-  onToggleDiscrepancySolve,
-  showDiscrepancySolve = true,
+  domPrefix,
 }: Props) {
   const saved = useMemo(() => {
     if (typeof gradingData === "string") {
@@ -63,11 +59,11 @@ export function PriorAlignedForm({
       completed
       canSubmit={false}
       hideSubmit
+      hideLiveMetrics
       formTitle={title}
+      domPrefix={domPrefix}
       highlightPaths={highlightPaths}
-      discrepancySolvePaths={discrepancySolvePaths}
-      showDiscrepancySolve={showDiscrepancySolve}
-      onToggleDiscrepancySolve={onToggleDiscrepancySolve}
+      showDiscrepancySolve={false}
     />
   );
 }
