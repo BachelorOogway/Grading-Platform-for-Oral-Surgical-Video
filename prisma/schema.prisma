@@ -95,7 +95,7 @@ model GradingResult {
   @@index([aiOutputId])
 }
 
-/** Open discrepancy on a categorical field — all 3 graders must unanimously vote. */
+// Open discrepancy-solve item on a categorical field (no voting; excluded from 2:1 majority).
 model DiscrepancyItem {
   id              String   @id @default(cuid())
   aiOutputId      String
