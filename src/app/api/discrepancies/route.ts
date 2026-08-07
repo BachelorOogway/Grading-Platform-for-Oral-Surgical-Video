@@ -2,14 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { GRADERS_PER_VIDEO } from "@/lib/graders";
 
-/**
- * Create discrepancy-solve items (no voting).
- * Flagged paths are excluded from 2:1 majority and shown on all 3 graders' dashboards.
- */
+/** Create or cancel discrepancy-solve items (no voting). */
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const expertId = String(body?.expertId ?? "").trim();
   const videoOutputId = String(body?.videoOutputId ?? "").trim();
+  const action = String(body?.action ?? "create").trim(); // create | cancel
   const fields: Array<{ path: string; label: string }> = Array.isArray(
     body?.fields,
   )
@@ -48,6 +46,18 @@ export async function POST(req: Request) {
       { error: "only the 3rd grader can initiate discrepancy solve" },
       { status: 403 },
     );
+  }
+
+  if (action === "cancel") {
+    const paths = fields.map((f) => String(f.path ?? "").trim()).filter(Boolean);
+    const result = await prisma.discrepancyItem.deleteMany({
+      where: {
+        aiOutputId: ai.id,
+        fieldPath: { in: paths },
+        status: "OPEN",
+      },
+    });
+    return NextResponse.json({ ok: true, cancelled: result.count });
   }
 
   const created = [];

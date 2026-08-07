@@ -153,7 +153,7 @@ export default function DashboardPage() {
           <section className="section-block" style={{ borderColor: "#eab308" }}>
             <h2 className="section-title">Discrepancy solve · 需进一步处理</h2>
             <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-              这些项<strong>未</strong>自动多数决。请打开对应任务对照查看；无 Dashboard 投票。
+              第三评分者已标记的分歧项。每位相关评分者都能看到（含视频 ID）。无投票。
             </p>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
               {discrepancies.map((d) => (
@@ -172,8 +172,11 @@ export default function DashboardPage() {
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      {d.videoOutputId} · {d.fieldLabel}
+                    <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
+                      Video: {d.videoOutputId}
+                    </div>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                      {d.fieldLabel}
                     </div>
                     <div className="muted" style={{ fontSize: 12 }}>
                       {d.fieldPath}

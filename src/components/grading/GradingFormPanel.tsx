@@ -284,7 +284,11 @@ export function GradingFormPanel({
   const hasError = (id: string) => errorIds.has(id);
   const isHot = (path: string) => Boolean(highlightPaths?.has(path));
   function DiscSolve({ path }: { path: string }) {
+    // One control per primary categorical question (not on nested error-type radios)
     if (!showDiscrepancySolve || !onToggleDiscrepancySolve || !isHot(path)) {
+      return null;
+    }
+    if (path.endsWith(".incorrectReason") || path.endsWith(".phaseErrorType")) {
       return null;
     }
     return (
@@ -504,7 +508,6 @@ export function GradingFormPanel({
               className="grading-sub"
             >
               <DiscSolve path={`level1.structures.${i}.correct`} />
-              <DiscSolve path={`level1.structures.${i}.incorrectReason`} />
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{s.name}</div>
               <CorrectIncorrect
                 legend="Structure Correct / Incorrect"
@@ -626,7 +629,6 @@ export function GradingFormPanel({
               className="grading-sub"
             >
               <DiscSolve path={`level1.instruments.${i}.correct`} />
-              <DiscSolve path={`level1.instruments.${i}.incorrectReason`} />
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{inst.name}</div>
               <CorrectIncorrect
                 legend="Instrument Correct / Incorrect"
@@ -852,9 +854,6 @@ export function GradingFormPanel({
                   : undefined
               }
             >
-              <DiscSolve path={`level2.phases.${i}.segmentationCorrect`} />
-              <DiscSolve path={`level2.phases.${i}.contentCorrect`} />
-              <DiscSolve path={`level2.phases.${i}.phaseErrorType`} />
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--accent-deep)" }}>
                 AI: [{p.aiStartTime} ? {p.aiEndTime}]
               </div>
@@ -865,6 +864,7 @@ export function GradingFormPanel({
               <FieldAnchor
                 id={`l2-phase-${i}-timing`}
                 error={hasError(`l2-phase-${i}-timing`)}
+                highlight={isHot(`level2.phases.${i}.segmentationCorrect`)}
                 style={{ padding: 6, borderRadius: 8, marginBottom: 4 }}
               >
                 <CorrectIncorrect
@@ -873,6 +873,7 @@ export function GradingFormPanel({
                   register={register}
                   disabled={completed}
                 />
+                <DiscSolve path={`level2.phases.${i}.segmentationCorrect`} />
               </FieldAnchor>
 
               {timingIncorrect ? (
@@ -885,6 +886,10 @@ export function GradingFormPanel({
               <FieldAnchor
                 id={`l2-phase-${i}-content`}
                 error={hasError(`l2-phase-${i}-content`)}
+                highlight={
+                  isHot(`level2.phases.${i}.contentCorrect`) ||
+                  isHot(`level2.phases.${i}.phaseErrorType`)
+                }
                 style={{ marginTop: 10, padding: 6, borderRadius: 8 }}
               >
                 <CorrectIncorrect
@@ -905,6 +910,7 @@ export function GradingFormPanel({
                     }
                   }}
                 />
+                <DiscSolve path={`level2.phases.${i}.contentCorrect`} />
               </FieldAnchor>
 
               {contentIncorrect ? (

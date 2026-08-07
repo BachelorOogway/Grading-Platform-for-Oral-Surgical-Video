@@ -48,6 +48,7 @@ type TaskDetail = {
     priorGraders: PriorGrader[];
     disagreements: CategoricalDisagreement[];
   };
+  openDiscrepancies?: Array<{ fieldPath: string; fieldLabel: string }>;
 };
 
 const EMPTY_PARSED: AiParsedData = {
@@ -113,12 +114,51 @@ export default function TaskGradingPage() {
   );
 
   function toggleDiscSolve(path: string) {
-    setSelectedDisc((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+    void (async () => {
+      if (!task || !expertId) return;
+      const label =
+        disagreements.find((d) => d.path === path)?.label ?? path;
+      const turningOn = !selectedDisc.has(path);
+
+      setSelectedDisc((prev) => {
+        const next = new Set(prev);
+        if (turningOn) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+
+      try {
+        const res = await fetch("/api/discrepancies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expertId,
+            videoOutputId: task.aiOutput.videoOutputId,
+            action: turningOn ? "create" : "cancel",
+            fields: [{ path, label }],
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(data?.error || "discrepancy solve 更新失败");
+          // revert
+          setSelectedDisc((prev) => {
+            const next = new Set(prev);
+            if (turningOn) next.delete(path);
+            else next.add(path);
+            return next;
+          });
+        }
+      } catch (err) {
+        alert(err instanceof Error ? err.message : String(err));
+        setSelectedDisc((prev) => {
+          const next = new Set(prev);
+          if (turningOn) next.delete(path);
+          else next.add(path);
+          return next;
+        });
+      }
+    })();
   }
 
   useEffect(() => {
@@ -133,7 +173,15 @@ export default function TaskGradingPage() {
     setLoading(true);
     fetch(`/api/tasks/${taskId}?expertId=${encodeURIComponent(id)}`)
       .then((r) => r.json())
-      .then((data) => setTask(data))
+      .then((data) => {
+        setTask(data);
+        const open = Array.isArray(data.openDiscrepancies)
+          ? data.openDiscrepancies.map(
+              (d: { fieldPath: string }) => d.fieldPath,
+            )
+          : [];
+        setSelectedDisc(new Set(open));
+      })
       .finally(() => setLoading(false));
   }, [router, taskId]);
 
@@ -230,7 +278,7 @@ export default function TaskGradingPage() {
   useConsensusRowAlign(
     Boolean(isTiebreaker && g1 && g2 && !loading && task),
     "[data-consensus-align-root]",
-    [highlightPaths.size, selectedDisc.size, formComplete, submitting],
+    [highlightPaths.size],
   );
 
   if (loading || !task) {
@@ -292,7 +340,7 @@ export default function TaskGradingPage() {
               {completed
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
-                  ? "三位评分表并排对照。前两位分歧项黄标；在你的表单用红色单选标记 discrepancy solve（不多数决）。未标记项按 2:1 多数决。"
+                  ? "三位评分表并排对照。分歧项黄标；在你的表单点红色 discrepancy solve 后，三位评分者 Dashboard 会立即显示该题（含视频 ID）。未标记项提交时按 2:1 多数决。"
                   : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>

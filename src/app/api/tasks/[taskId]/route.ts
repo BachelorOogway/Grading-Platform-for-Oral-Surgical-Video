@@ -134,6 +134,11 @@ export async function GET(
     };
   }
 
+  const openDiscrepancies = await prisma.discrepancyItem.findMany({
+    where: { aiOutputId: assignment.aiOutputId, status: "OPEN" },
+    select: { fieldPath: true, fieldLabel: true },
+  });
+
   return NextResponse.json({
     taskAssignmentId: assignment.id,
     status: assignment.status,
@@ -154,5 +159,6 @@ export async function GET(
       ? parseJsonSafe(assignment.gradingResult.gradingData, null)
       : null,
     consensus,
+    openDiscrepancies,
   });
 }
