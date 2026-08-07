@@ -24,6 +24,7 @@ export async function GET(req: Request) {
       submittedAt: r.submittedAt?.toISOString?.() ?? String(r.submittedAt),
       gradingData: r.gradingData,
       parsedData: r.taskAssignment.aiOutput.parsedData,
+      graderSlot: r.taskAssignment.graderSlot,
     })),
   );
 

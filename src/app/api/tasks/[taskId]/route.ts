@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseJsonSafe } from "@/lib/json";
 import { parseAiOutputToParsedData, type AiParsedData } from "@/lib/aiOutputParser";
+import { findCategoricalDisagreements } from "@/lib/categoricalFields";
+import { GRADERS_PER_VIDEO, isTiebreakerSlot } from "@/lib/graders";
 
 function normalizeParsed(raw: unknown, rawText: string): AiParsedData {
   const parsed = parseAiOutputToParsedData(rawText);
@@ -77,9 +79,66 @@ export async function GET(
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  let consensus: null | {
+    isTiebreaker: boolean;
+    graderSlot: number;
+    priorGraders: Array<{
+      expertId: string;
+      name: string;
+      graderSlot: number;
+      gradingData: unknown;
+    }>;
+    disagreements: ReturnType<typeof findCategoricalDisagreements>;
+  } = null;
+
+  if (isTiebreakerSlot(assignment.graderSlot)) {
+    const priors = await prisma.taskAssignment.findMany({
+      where: {
+        aiOutputId: assignment.aiOutputId,
+        graderSlot: { in: [1, 2] },
+        status: "COMPLETED",
+      },
+      include: {
+        expert: { select: { expertId: true, name: true } },
+        gradingResult: true,
+      },
+      orderBy: { graderSlot: "asc" },
+    });
+
+    const priorGraders = priors
+      .filter((p) => p.gradingResult)
+      .map((p) => ({
+        expertId: p.expert.expertId,
+        name: p.expert.name,
+        graderSlot: p.graderSlot,
+        gradingData: parseJsonSafe(p.gradingResult!.gradingData, null),
+      }));
+
+    const g1 = priorGraders.find((p) => p.graderSlot === 1)?.gradingData;
+    const g2 = priorGraders.find((p) => p.graderSlot === 2)?.gradingData;
+    const disagreements =
+      g1 && g2 ? findCategoricalDisagreements(g1, g2) : [];
+
+    consensus = {
+      isTiebreaker: true,
+      graderSlot: assignment.graderSlot,
+      priorGraders,
+      disagreements,
+    };
+  } else {
+    consensus = {
+      isTiebreaker: false,
+      graderSlot: assignment.graderSlot,
+      priorGraders: [],
+      disagreements: [],
+    };
+  }
+
   return NextResponse.json({
     taskAssignmentId: assignment.id,
     status: assignment.status,
+    graderSlot: assignment.graderSlot,
+    gradersPerVideo: GRADERS_PER_VIDEO,
     expert: assignment.expert,
     regradeNote: assignment.regradeNote,
     regradeRequestedAt: assignment.regradeRequestedAt,
@@ -94,5 +153,6 @@ export async function GET(
     gradingResult: assignment.gradingResult
       ? parseJsonSafe(assignment.gradingResult.gradingData, null)
       : null,
+    consensus,
   });
 }

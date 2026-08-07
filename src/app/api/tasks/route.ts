@@ -5,6 +5,7 @@ import {
   isInRanges,
   syncSharedAssignmentsForExpert,
 } from "@/lib/assignmentConfig";
+import { GRADERS_PER_VIDEO } from "@/lib/graders";
 import { prisma } from "@/lib/prisma";
 import { parseVideoNumber } from "@/lib/videoId";
 
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
     videoOutputId: a.aiOutput.videoOutputId,
     status: a.status,
     kind: a.kind,
+    graderSlot: a.graderSlot,
     updatedAt: a.updatedAt,
     regradeNote: a.regradeNote,
     regradeRequestedAt: a.regradeRequestedAt,
@@ -53,30 +55,71 @@ export async function GET(req: Request) {
     select: { id: true, videoOutputId: true },
   });
 
-  const claimedAiOutputIds = new Set(
-    (await prisma.taskAssignment.findMany({ select: { aiOutputId: true } })).map(
-      (x) => x.aiOutputId,
-    ),
-  );
+  const counts = await prisma.taskAssignment.groupBy({
+    by: ["aiOutputId"],
+    _count: { _all: true },
+  });
+  const countByAi = new Map(counts.map((c) => [c.aiOutputId, c._count._all]));
 
+  const myAiIds = new Set(assignments.map((a) => a.aiOutputId));
+
+  // Claimable: any configured range video with < 3 graders and not already mine
   const claimable = allOutputs
     .filter((o) => {
       const n = parseVideoNumber(o.videoOutputId);
       if (n === null) return false;
-      if (!isInRanges(n, config.exclusiveRanges)) return false;
-      return !claimedAiOutputIds.has(o.id);
+      const inEx = isInRanges(n, config.exclusiveRanges);
+      const inSh = isInRanges(n, config.sharedRanges);
+      if (!inEx && !inSh) return false;
+      if (myAiIds.has(o.id)) return false;
+      return (countByAi.get(o.id) ?? 0) < GRADERS_PER_VIDEO;
     })
     .map((o) => ({
       videoOutputId: o.videoOutputId,
       videoNumber: parseVideoNumber(o.videoOutputId),
+      slotsTaken: countByAi.get(o.id) ?? 0,
+      slotsTotal: GRADERS_PER_VIDEO,
     }))
     .sort((a, b) => (a.videoNumber ?? 0) - (b.videoNumber ?? 0));
 
+  const openDiscrepancies = await prisma.discrepancyItem.findMany({
+    where: {
+      status: "OPEN",
+      aiOutput: {
+        assignments: { some: { expertId: expert.id } },
+      },
+    },
+    include: {
+      aiOutput: {
+        select: {
+          videoOutputId: true,
+          assignments: {
+            where: { expertId: expert.id },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const discrepancies = openDiscrepancies.map((d) => ({
+    id: d.id,
+    videoOutputId: d.aiOutput.videoOutputId,
+    fieldPath: d.fieldPath,
+    fieldLabel: d.fieldLabel,
+    status: d.status,
+    taskAssignmentId: d.aiOutput.assignments[0]?.id ?? null,
+  }));
+
   return NextResponse.json({
     config,
+    gradersPerVideo: GRADERS_PER_VIDEO,
     pending,
     completed,
     claimable,
+    discrepancies,
     sharedPending: pending.filter((p) => p.kind === AssignmentKind.SHARED),
     exclusivePending: pending.filter((p) => p.kind === AssignmentKind.EXCLUSIVE),
   });

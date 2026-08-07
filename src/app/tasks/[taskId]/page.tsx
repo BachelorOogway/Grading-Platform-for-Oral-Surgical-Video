@@ -17,10 +17,24 @@ import {
   type GradingForm,
 } from "@/lib/gradingForm";
 import { GradingFormPanel } from "@/components/grading/GradingFormPanel";
+import { ConsensusSidePanel } from "@/components/grading/ConsensusSidePanel";
+import {
+  PriorCategoricalColumn,
+  disagreePathSet,
+} from "@/components/grading/PriorCategoricalColumn";
+import type { CategoricalDisagreement } from "@/lib/categoricalFields";
+
+type PriorGrader = {
+  expertId: string;
+  name: string;
+  graderSlot: number;
+  gradingData: unknown;
+};
 
 type TaskDetail = {
   taskAssignmentId: string;
   status: "PENDING" | "COMPLETED";
+  graderSlot?: number;
   expert: { expertId: string; name: string };
   regradeNote?: string | null;
   regradeRequestedAt?: string | null;
@@ -30,6 +44,12 @@ type TaskDetail = {
     parsedData: AiParsedData;
   };
   gradingResult: any | null;
+  consensus?: {
+    isTiebreaker: boolean;
+    graderSlot: number;
+    priorGraders: PriorGrader[];
+    disagreements: CategoricalDisagreement[];
+  };
 };
 
 const EMPTY_PARSED: AiParsedData = {
@@ -61,6 +81,7 @@ export default function TaskGradingPage() {
   const [expertId, setExpertId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedDisc, setSelectedDisc] = useState<Set<string>>(new Set());
 
   const parsed = useMemo(
     () => task?.aiOutput?.parsedData ?? EMPTY_PARSED,
@@ -84,6 +105,21 @@ export default function TaskGradingPage() {
     [watchedValues, parsed],
   );
   const formComplete = incomplete.length === 0;
+
+  const isTiebreaker = Boolean(task?.consensus?.isTiebreaker);
+  const disagreements = task?.consensus?.disagreements ?? [];
+  const priorGraders = task?.consensus?.priorGraders ?? [];
+  const highlightPaths = useMemo(
+    () => disagreePathSet(disagreements),
+    [disagreements],
+  );
+  const priorHints = useMemo(() => {
+    const m: Record<string, { g1: string; g2: string }> = {};
+    for (const d of disagreements) {
+      m[d.path] = { g1: d.grader1Value, g2: d.grader2Value };
+    }
+    return m;
+  }, [disagreements]);
 
   useEffect(() => {
     const id = localStorage.getItem("expertId");
@@ -111,7 +147,6 @@ export default function TaskGradingPage() {
       return;
     }
 
-    // After admin return-for-regrade, drop the previous local draft once.
     if (task.regradeRequestedAt) {
       const clearedKey = `gradingDraftCleared:${expertId}:${taskId}:${task.regradeRequestedAt}`;
       if (!localStorage.getItem(clearedKey)) {
@@ -165,7 +200,11 @@ export default function TaskGradingPage() {
       const res = await fetch(`/api/tasks/${taskId}/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expertId: id, gradingData }),
+        body: JSON.stringify({
+          expertId: id,
+          gradingData,
+          discrepancySolvePaths: isTiebreaker ? Array.from(selectedDisc) : [],
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -193,17 +232,53 @@ export default function TaskGradingPage() {
     );
   }
 
+  const g1 = priorGraders.find((p) => p.graderSlot === 1);
+  const g2 = priorGraders.find((p) => p.graderSlot === 2);
+
+  const formPanel = (
+    <GradingFormPanel
+      parsed={parsed}
+      register={register}
+      watch={watch}
+      setValue={setValue}
+      handleSubmit={handleSubmit}
+      onSubmit={onSubmit}
+      onInvalid={onInvalid}
+      errors={{}}
+      isValid={formComplete}
+      incompleteMessages={incomplete}
+      completed={completed}
+      canSubmit={canSubmit}
+      submitting={submitting}
+      highlightPaths={isTiebreaker ? highlightPaths : undefined}
+      priorHints={isTiebreaker ? priorHints : undefined}
+    />
+  );
+
   return (
     <main className="app-shell">
-      <div className="app-shell-inner">
+      <div
+        className="app-shell-inner"
+        style={{ maxWidth: isTiebreaker ? 1400 : undefined }}
+      >
         <div className="brand-mark">Oral Surgical Grading</div>
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">评分 · {task.aiOutput.videoOutputId}</h1>
+            <h1 className="page-title">
+              评分 · {task.aiOutput.videoOutputId}
+              {task.graderSlot ? (
+                <span className="muted" style={{ fontSize: 16, fontWeight: 500 }}>
+                  {" "}
+                  · Grader {task.graderSlot}/3
+                </span>
+              ) : null}
+            </h1>
             <p className="page-lead" style={{ marginBottom: 12 }}>
               {completed
                 ? "本任务已提交，以下内容只读保留。"
-                : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
+                : isTiebreaker
+                  ? "你是第 3 位评分者。并排对照前两位选择题；黄标为分歧。未勾选 discrepancy solve 的项提交时按 2:1 多数决；勾选项登记到 Dashboard，无投票。"
+                  : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>
           <button
@@ -232,23 +307,54 @@ export default function TaskGradingPage() {
           </div>
         ) : null}
 
+        {isTiebreaker && (!g1 || !g2) ? (
+          <div className="notice notice-warn">
+            前两位评分者尚未都提交完成。请等待他们完成后再进行对照评分。
+          </div>
+        ) : null}
+
         {submitError ? <div className="notice notice-danger">{submitError}</div> : null}
 
-        <GradingFormPanel
-          parsed={parsed}
-          register={register}
-          watch={watch}
-          setValue={setValue}
-          handleSubmit={handleSubmit}
-          onSubmit={onSubmit}
-          onInvalid={onInvalid}
-          errors={{}}
-          isValid={formComplete}
-          incompleteMessages={incomplete}
-          completed={completed}
-          canSubmit={canSubmit}
-          submitting={submitting}
-        />
+        {isTiebreaker && g1 && g2 ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "minmax(180px, 1fr) minmax(180px, 1fr) minmax(280px, 1.4fr) minmax(220px, 0.9fr)",
+              gap: 12,
+              alignItems: "start",
+              overflowX: "auto",
+            }}
+          >
+            <PriorCategoricalColumn
+              title={`Grader 1 · ${g1.expertId}`}
+              gradingData={g1.gradingData}
+              disagreePaths={highlightPaths}
+            />
+            <PriorCategoricalColumn
+              title={`Grader 2 · ${g2.expertId}`}
+              gradingData={g2.gradingData}
+              disagreePaths={highlightPaths}
+            />
+            <div>{formPanel}</div>
+            <ConsensusSidePanel
+              disagreements={disagreements}
+              priorGraders={priorGraders}
+              selectedForDiscrepancy={selectedDisc}
+              onToggleDiscrepancy={(path) => {
+                setSelectedDisc((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(path)) next.delete(path);
+                  else next.add(path);
+                  return next;
+                });
+              }}
+              completed={completed}
+            />
+          </div>
+        ) : (
+          formPanel
+        )}
       </div>
     </main>
   );

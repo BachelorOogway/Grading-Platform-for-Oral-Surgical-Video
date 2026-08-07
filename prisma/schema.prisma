@@ -44,8 +44,9 @@ model AiOutput {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  assignments TaskAssignment[]
-  grading     GradingResult[]
+  assignments   TaskAssignment[]
+  grading       GradingResult[]
+  discrepancies DiscrepancyItem[]
 
   @@index([createdAt])
 }
@@ -58,6 +59,8 @@ model TaskAssignment {
   kind       String   @default("EXCLUSIVE")
   // PENDING | COMPLETED
   status     String   @default("PENDING")
+  // 1 | 2 | 3 — order among graders for this video
+  graderSlot Int      @default(1)
   assignedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
   // Admin requested regrade
@@ -70,6 +73,7 @@ model TaskAssignment {
 
   @@unique([expertId, aiOutputId])
   @@index([status])
+  @@index([aiOutputId, graderSlot])
 }
 
 model GradingResult {
@@ -89,4 +93,36 @@ model GradingResult {
   @@index([submittedAt])
   @@index([expertId])
   @@index([aiOutputId])
+}
+
+/** Open discrepancy on a categorical field — all 3 graders must unanimously vote. */
+model DiscrepancyItem {
+  id              String   @id @default(cuid())
+  aiOutputId      String
+  fieldPath       String
+  fieldLabel      String
+  status          String   @default("OPEN") // OPEN | RESOLVED
+  resolvedValue   String?
+  createdByExpert String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  aiOutput AiOutput          @relation(fields: [aiOutputId], references: [id])
+  votes    DiscrepancyVote[]
+
+  @@unique([aiOutputId, fieldPath])
+  @@index([status])
+}
+
+model DiscrepancyVote {
+  id                String   @id @default(cuid())
+  discrepancyItemId String
+  expertId          String
+  choice            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  item DiscrepancyItem @relation(fields: [discrepancyItemId], references: [id], onDelete: Cascade)
+
+  @@unique([discrepancyItemId, expertId])
 }

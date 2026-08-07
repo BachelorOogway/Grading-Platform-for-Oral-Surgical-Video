@@ -1,0 +1,127 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { GRADERS_PER_VIDEO } from "@/lib/graders";
+
+/**
+ * Create discrepancy-solve items (no voting).
+ * Flagged paths are excluded from 2:1 majority and shown on all 3 graders' dashboards.
+ */
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const expertId = String(body?.expertId ?? "").trim();
+  const videoOutputId = String(body?.videoOutputId ?? "").trim();
+  const fields: Array<{ path: string; label: string }> = Array.isArray(
+    body?.fields,
+  )
+    ? body.fields
+    : [];
+
+  if (!expertId || !videoOutputId || fields.length === 0) {
+    return NextResponse.json(
+      { error: "expertId, videoOutputId, fields required" },
+      { status: 400 },
+    );
+  }
+
+  const expert = await prisma.expert.findUnique({
+    where: { expertId },
+    select: { id: true, expertId: true },
+  });
+  if (!expert) {
+    return NextResponse.json({ error: "expert not found" }, { status: 404 });
+  }
+
+  const ai = await prisma.aiOutput.findUnique({
+    where: { videoOutputId },
+    select: { id: true },
+  });
+  if (!ai) {
+    return NextResponse.json({ error: "video not found" }, { status: 404 });
+  }
+
+  const assignment = await prisma.taskAssignment.findFirst({
+    where: { expertId: expert.id, aiOutputId: ai.id },
+    select: { graderSlot: true },
+  });
+  if (!assignment || assignment.graderSlot !== GRADERS_PER_VIDEO) {
+    return NextResponse.json(
+      { error: "only the 3rd grader can initiate discrepancy solve" },
+      { status: 403 },
+    );
+  }
+
+  const created = [];
+  for (const f of fields) {
+    const path = String(f.path ?? "").trim();
+    const label = String(f.label ?? path).trim();
+    if (!path) continue;
+    const item = await prisma.discrepancyItem.upsert({
+      where: {
+        aiOutputId_fieldPath: { aiOutputId: ai.id, fieldPath: path },
+      },
+      update: {
+        status: "OPEN",
+        resolvedValue: null,
+        fieldLabel: label,
+        createdByExpert: expert.expertId,
+      },
+      create: {
+        aiOutputId: ai.id,
+        fieldPath: path,
+        fieldLabel: label,
+        status: "OPEN",
+        createdByExpert: expert.expertId,
+      },
+    });
+    created.push(item);
+  }
+
+  return NextResponse.json({ ok: true, count: created.length, items: created });
+}
+
+/** List open discrepancy-solve items for an expert (videos they grade). */
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const expertId = url.searchParams.get("expertId")?.trim();
+  if (!expertId) {
+    return NextResponse.json({ error: "expertId required" }, { status: 400 });
+  }
+
+  const expert = await prisma.expert.findUnique({
+    where: { expertId },
+    select: { id: true, expertId: true },
+  });
+  if (!expert) {
+    return NextResponse.json({ error: "expert not found" }, { status: 404 });
+  }
+
+  const items = await prisma.discrepancyItem.findMany({
+    where: {
+      status: "OPEN",
+      aiOutput: { assignments: { some: { expertId: expert.id } } },
+    },
+    include: {
+      aiOutput: {
+        select: {
+          videoOutputId: true,
+          assignments: {
+            where: { expertId: expert.id },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return NextResponse.json({
+    items: items.map((d) => ({
+      id: d.id,
+      videoOutputId: d.aiOutput.videoOutputId,
+      fieldPath: d.fieldPath,
+      fieldLabel: d.fieldLabel,
+      taskAssignmentId: d.aiOutput.assignments[0]?.id ?? null,
+    })),
+  });
+}

@@ -9,6 +9,7 @@ type TaskListItem = {
   videoOutputId: string;
   status: "PENDING" | "COMPLETED";
   kind: "EXCLUSIVE" | "SHARED";
+  graderSlot?: number;
   updatedAt: string;
   regradeNote?: string | null;
   regradeRequestedAt?: string | null;
@@ -17,6 +18,16 @@ type TaskListItem = {
 type ClaimableItem = {
   videoOutputId: string;
   videoNumber: number | null;
+  slotsTaken?: number;
+  slotsTotal?: number;
+};
+
+type DiscItem = {
+  id: string;
+  videoOutputId: string;
+  fieldPath: string;
+  fieldLabel: string;
+  taskAssignmentId: string | null;
 };
 
 export default function DashboardPage() {
@@ -25,6 +36,7 @@ export default function DashboardPage() {
   const [exclusivePending, setExclusivePending] = useState<TaskListItem[]>([]);
   const [completed, setCompleted] = useState<TaskListItem[]>([]);
   const [claimable, setClaimable] = useState<ClaimableItem[]>([]);
+  const [discrepancies, setDiscrepancies] = useState<DiscItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [expertId, setExpertId] = useState<string | null>(null);
@@ -45,6 +57,7 @@ export default function DashboardPage() {
       setExclusivePending(data.exclusivePending ?? []);
       setCompleted(data.completed ?? []);
       setClaimable(data.claimable ?? []);
+      setDiscrepancies(data.discrepancies ?? []);
     } finally {
       setLoading(false);
     }
@@ -96,9 +109,14 @@ export default function DashboardPage() {
             >
               <span className="task-btn-title">{t.videoOutputId}</span>
               <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                {t.regradeRequestedAt ? <span className="badge badge-warn">需重评</span> : null}
+                {t.regradeRequestedAt ? (
+                  <span className="badge badge-warn">需重评</span>
+                ) : null}
+                {t.graderSlot ? (
+                  <span className="badge">G{t.graderSlot}/3</span>
+                ) : null}
                 <span className="task-btn-meta">
-                  {t.kind === "SHARED" ? "全员必评" : "已认领"}
+                  {t.kind === "SHARED" ? "共享区间" : "认领"}
                 </span>
               </span>
             </button>
@@ -125,15 +143,62 @@ export default function DashboardPage() {
             <h1 className="page-title">任务面板</h1>
             <p className="page-lead">
               {expertId ? `您好，${expertId}。` : ""}
-              共享区间视频会自动出现在「分派任务」；独占区间需自行认领，每个视频仅一位专家。
+              每个视频 3 位评分者。选择题分歧默认按多数（2:1）裁定；仅被发起
+              discrepancy solve 的项会出现在下方供进一步处理（无投票）。
             </p>
           </div>
         </div>
 
+        {discrepancies.length > 0 ? (
+          <section className="section-block" style={{ borderColor: "#eab308" }}>
+            <h2 className="section-title">Discrepancy solve · 需进一步处理</h2>
+            <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
+              这些项<strong>未</strong>自动多数决。请打开对应任务对照查看；无 Dashboard 投票。
+            </p>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
+              {discrepancies.map((d) => (
+                <li
+                  key={d.id}
+                  style={{
+                    background: "#fef9c3",
+                    border: "1px solid #eab308",
+                    borderRadius: 8,
+                    padding: 12,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {d.videoOutputId} · {d.fieldLabel}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {d.fieldPath}
+                    </div>
+                  </div>
+                  {d.taskAssignmentId ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: 12 }}
+                      onClick={() => router.push(`/tasks/${d.taskAssignmentId}`)}
+                    >
+                      打开任务
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <section className="section-block">
-          <h2 className="section-title">可认领 · 独占</h2>
+          <h2 className="section-title">可认领（未满 3 人）</h2>
           {claimable.length === 0 ? (
-            <div className="muted">暂无可认领视频（可能尚未上传或已被认领）</div>
+            <div className="muted">暂无可认领视频</div>
           ) : (
             <ul className="task-list">
               {claimable.map((c) => (
@@ -146,7 +211,9 @@ export default function DashboardPage() {
                   >
                     <span className="task-btn-title">{c.videoOutputId}</span>
                     <span className="badge">
-                      {claimingId === c.videoOutputId ? "认领中…" : "认领"}
+                      {claimingId === c.videoOutputId
+                        ? "认领中…"
+                        : `认领 (${c.slotsTaken ?? 0}/${c.slotsTotal ?? 3})`}
                     </span>
                   </button>
                 </li>

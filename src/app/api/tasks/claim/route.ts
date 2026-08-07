@@ -4,6 +4,7 @@ import {
   classifyVideoOutputId,
   getAssignmentConfig,
 } from "@/lib/assignmentConfig";
+import { GRADERS_PER_VIDEO } from "@/lib/graders";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
@@ -28,9 +29,9 @@ export async function POST(req: Request) {
 
   const config = await getAssignmentConfig();
   const kind = classifyVideoOutputId(videoOutputId, config);
-  if (kind !== AssignmentKind.EXCLUSIVE) {
+  if (!kind) {
     return NextResponse.json(
-      { error: "该视频不在「独占认领」区间内，或编号无效" },
+      { error: "该视频不在可认领区间内，或编号无效" },
       { status: 400 },
     );
   }
@@ -44,37 +45,60 @@ export async function POST(req: Request) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const taken = await tx.taskAssignment.findFirst({
+    const mine = await tx.taskAssignment.findFirst({
+      where: { expertId: expert.id, aiOutputId: aiOutput.id },
+      select: { id: true, graderSlot: true },
+    });
+    if (mine) {
+      return {
+        taskAssignmentId: mine.id,
+        alreadyOwned: true,
+        graderSlot: mine.graderSlot,
+      };
+    }
+
+    const existing = await tx.taskAssignment.findMany({
       where: { aiOutputId: aiOutput.id },
-      select: { id: true, expertId: true },
+      select: { id: true, graderSlot: true },
+      orderBy: { graderSlot: "asc" },
     });
 
-    if (taken) {
-      if (taken.expertId === expert.id) {
-        return { taskAssignmentId: taken.id, alreadyOwned: true };
-      }
-      return { conflict: true as const };
+    if (existing.length >= GRADERS_PER_VIDEO) {
+      return { full: true as const };
     }
+
+    const usedSlots = new Set(existing.map((e) => e.graderSlot));
+    let slot = 1;
+    while (usedSlots.has(slot) && slot <= GRADERS_PER_VIDEO) slot += 1;
 
     const created = await tx.taskAssignment.create({
       data: {
         expertId: expert.id,
         aiOutputId: aiOutput.id,
-        kind: AssignmentKind.EXCLUSIVE,
+        kind,
         status: "PENDING",
+        graderSlot: slot,
       },
-      select: { id: true },
+      select: { id: true, graderSlot: true },
     });
-    return { taskAssignmentId: created.id, alreadyOwned: false };
+    return {
+      taskAssignmentId: created.id,
+      alreadyOwned: false,
+      graderSlot: created.graderSlot,
+    };
   });
 
-  if ("conflict" in result && result.conflict) {
-    return NextResponse.json({ error: "该视频已被其他专家认领" }, { status: 409 });
+  if ("full" in result && result.full) {
+    return NextResponse.json(
+      { error: `该视频已有 ${GRADERS_PER_VIDEO} 位评分者` },
+      { status: 409 },
+    );
   }
 
   return NextResponse.json({
     ok: true,
     taskAssignmentId: result.taskAssignmentId,
     alreadyOwned: result.alreadyOwned,
+    graderSlot: result.graderSlot,
   });
 }

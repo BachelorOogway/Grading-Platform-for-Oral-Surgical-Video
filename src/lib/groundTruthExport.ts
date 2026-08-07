@@ -13,29 +13,34 @@ export type GroundTruthRowInput = {
   submittedAt: string;
   gradingData: unknown;
   parsedData: unknown;
+  /** 1 | 2 | 3 — prefer slot 3 (majority consensus) when present */
+  graderSlot?: number;
 };
 
 /**
- * One row per video: keep the earliest submission (first expert to grade).
- * Tie-break by expertId ascending.
+ * One row per video: prefer grader slot 3 (tiebreaker with 2:1 majority applied),
+ * else earliest submission. Tie-break by expertId ascending.
  */
 export function pickFirstExpertPerVideo(
   rows: GroundTruthRowInput[],
 ): GroundTruthRowInput[] {
   const byVideo = new Map<string, GroundTruthRowInput>();
+
+  function better(a: GroundTruthRowInput, b: GroundTruthRowInput): boolean {
+    const slotA = a.graderSlot ?? 0;
+    const slotB = b.graderSlot ?? 0;
+    if (slotA === 3 && slotB !== 3) return true;
+    if (slotB === 3 && slotA !== 3) return false;
+    const tA = Date.parse(a.submittedAt) || 0;
+    const tB = Date.parse(b.submittedAt) || 0;
+    if (tA !== tB) return tA < tB;
+    return a.expertId.localeCompare(b.expertId) < 0;
+  }
+
   for (const row of rows) {
     const key = row.videoOutputId;
     const prev = byVideo.get(key);
-    if (!prev) {
-      byVideo.set(key, row);
-      continue;
-    }
-    const tNew = Date.parse(row.submittedAt) || 0;
-    const tOld = Date.parse(prev.submittedAt) || 0;
-    if (
-      tNew < tOld ||
-      (tNew === tOld && row.expertId.localeCompare(prev.expertId) < 0)
-    ) {
+    if (!prev || better(row, prev)) {
       byVideo.set(key, row);
     }
   }
@@ -47,7 +52,7 @@ export function pickFirstExpertPerVideo(
 /**
  * Build per-video ground truth:
  * AI value kept when expert marked correct; otherwise expert correction.
- * Level 4 expert scores included. Multi-expert videos → first submission only.
+ * Level 4 expert scores included. Prefer 3rd grader (majority) when available.
  */
 export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
   const selected = pickFirstExpertPerVideo(rows);

@@ -34,12 +34,14 @@ const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/;
 function FieldAnchor({
   id,
   error,
+  highlight = false,
   children,
   style,
   className = "",
 }: {
   id: string;
   error: boolean;
+  highlight?: boolean;
   children: React.ReactNode;
   style?: React.CSSProperties;
   className?: string;
@@ -47,8 +49,19 @@ function FieldAnchor({
   return (
     <div
       id={gradingFieldDomId(id)}
-      className={`${className}${error ? " grading-error" : ""}`.trim()}
-      style={style}
+      className={`${className}${error ? " grading-error" : ""}${
+        highlight ? " grading-consensus-hot" : ""
+      }`.trim()}
+      style={{
+        ...style,
+        ...(highlight
+          ? {
+              background: "#fef9c3",
+              boxShadow: "inset 0 0 0 1px #eab308",
+              borderRadius: 8,
+            }
+          : null),
+      }}
     >
       {children}
       {error ? <div className="grading-error-hint">此项为必填，请填写</div> : null}
@@ -170,6 +183,10 @@ type Props = {
   completed: boolean;
   canSubmit: boolean;
   submitting?: boolean;
+  /** Categorical paths where grader1 ≠ grader2 (yellow highlight) */
+  highlightPaths?: Set<string>;
+  /** Optional prior answers shown above highlighted fields */
+  priorHints?: Record<string, { g1: string; g2: string }>;
 };
 
 export function GradingFormPanel({
@@ -185,6 +202,8 @@ export function GradingFormPanel({
   completed,
   canSubmit,
   submitting = false,
+  highlightPaths,
+  priorHints,
 }: Props) {
   const l1 = parsed.level1;
   const l2 = parsed.level2;
@@ -204,6 +223,27 @@ export function GradingFormPanel({
     return new Set(incompleteFields.map((f) => f.id));
   }, [showErrors, incompleteFields]);
   const hasError = (id: string) => errorIds.has(id);
+  const isHot = (path: string) => Boolean(highlightPaths?.has(path));
+  function PriorHint({ path }: { path: string }) {
+    const h = priorHints?.[path];
+    if (!h) return null;
+    return (
+      <div
+        style={{
+          fontSize: 12,
+          marginBottom: 6,
+          padding: "4px 8px",
+          background: "#fef9c3",
+          borderRadius: 4,
+          color: "var(--ink-soft)",
+        }}
+      >
+        G1: <strong>{h.g1}</strong>
+        <span style={{ margin: "0 8px" }}>·</span>
+        G2: <strong>{h.g2}</strong>
+      </div>
+    );
+  }
 
   const structureWrong = countIncorrectItems(watchedStructures);
   const instrumentWrong = countIncorrectItems(watchedInstruments);
@@ -332,7 +372,13 @@ export function GradingFormPanel({
       <div className="grading-card">
         <div className="grading-card-title">Level 1 — Perception</div>
 
-        <FieldAnchor id="l1-procedureType" error={hasError("l1-procedureType")} className="grading-sub">
+        <FieldAnchor
+          id="l1-procedureType"
+          error={hasError("l1-procedureType")}
+          highlight={isHot("level1.procedureTypeCorrect")}
+          className="grading-sub"
+        >
+          <PriorHint path="level1.procedureTypeCorrect" />
           <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>Procedure Type</div>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "var(--ink)" }}>
             AI: {l1.procedureType || "—"}
@@ -386,8 +432,14 @@ export function GradingFormPanel({
               key={i}
               id={`l1-structure-${i}`}
               error={structErr}
+              highlight={
+                isHot(`level1.structures.${i}.correct`) ||
+                isHot(`level1.structures.${i}.incorrectReason`)
+              }
               className="grading-sub"
             >
+              <PriorHint path={`level1.structures.${i}.correct`} />
+              <PriorHint path={`level1.structures.${i}.incorrectReason`} />
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{s.name}</div>
               <CorrectIncorrect
                 legend="Structure Correct / Incorrect"
@@ -502,8 +554,14 @@ export function GradingFormPanel({
               key={i}
               id={`l1-instrument-${i}`}
               error={instErr}
+              highlight={
+                isHot(`level1.instruments.${i}.correct`) ||
+                isHot(`level1.instruments.${i}.incorrectReason`)
+              }
               className="grading-sub"
             >
+              <PriorHint path={`level1.instruments.${i}.correct`} />
+              <PriorHint path={`level1.instruments.${i}.incorrectReason`} />
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{inst.name}</div>
               <CorrectIncorrect
                 legend="Instrument Correct / Incorrect"
@@ -636,7 +694,13 @@ export function GradingFormPanel({
         </div>
 
         <div className="grading-section-title">Spatial Positioning</div>
-        <FieldAnchor id="l1-spatial" error={hasError("l1-spatial")} className="grading-sub">
+        <FieldAnchor
+          id="l1-spatial"
+          error={hasError("l1-spatial")}
+          highlight={isHot("level1.spatialPositioningCorrect")}
+          className="grading-sub"
+        >
+          <PriorHint path="level1.spatialPositioningCorrect" />
           {l1.spatialPositioning ? (
             <div style={{ fontSize: 13, color: "#444", marginBottom: 8 }}>
               AI: {l1.spatialPositioning}
@@ -712,7 +776,20 @@ export function GradingFormPanel({
                   ? " grading-error"
                   : ""
               }`}
+              style={
+                isHot(`level2.phases.${i}.segmentationCorrect`) ||
+                isHot(`level2.phases.${i}.contentCorrect`) ||
+                isHot(`level2.phases.${i}.phaseErrorType`)
+                  ? {
+                      background: "#fef9c3",
+                      boxShadow: "inset 0 0 0 1px #eab308",
+                    }
+                  : undefined
+              }
             >
+              <PriorHint path={`level2.phases.${i}.segmentationCorrect`} />
+              <PriorHint path={`level2.phases.${i}.contentCorrect`} />
+              <PriorHint path={`level2.phases.${i}.phaseErrorType`} />
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--accent-deep)" }}>
                 AI: [{p.aiStartTime} → {p.aiEndTime}]
               </div>
@@ -1067,8 +1144,10 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         <FieldAnchor
           id="l2-missedSteps"
           error={hasError("l2-missedSteps")}
+          highlight={isHot("level2.missedStepsDetectedCorrect")}
           style={{ marginTop: 10, padding: 8, borderRadius: 8 }}
         >
+          <PriorHint path="level2.missedStepsDetectedCorrect" />
           <CorrectIncorrect
             legend="Is the missed-phase content correct?"
             name="level2.missedStepsDetectedCorrect"
@@ -1131,8 +1210,10 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         <FieldAnchor
           id="l3-surgeryCompleted"
           error={hasError("l3-surgeryCompleted")}
+          highlight={isHot("level3.surgeryCompleted")}
           style={{ padding: 8, borderRadius: 8, margin: "10px 0" }}
         >
+          <PriorHint path="level3.surgeryCompleted" />
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>Is the surgery completed? (Yes / No)</legend>
             <label style={{ marginRight: 12 }}>
@@ -1159,8 +1240,10 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         <FieldAnchor
           id="l3-nextAction"
           error={hasError("l3-nextAction")}
+          highlight={isHot("level3.nextActionAccurate")}
           style={{ padding: 8, borderRadius: 8 }}
         >
+          <PriorHint path="level3.nextActionAccurate" />
           <CorrectIncorrect
             legend="Is the Next Action medically accurate?"
             name="level3.nextActionAccurate"
@@ -1199,8 +1282,10 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         <FieldAnchor
           id="l3-nomenclature"
           error={hasError("l3-nomenclature")}
+          highlight={isHot("level3.nomenclatureStandardized")}
           style={{ marginTop: 10, padding: 8, borderRadius: 8 }}
         >
+          <PriorHint path="level3.nomenclatureStandardized" />
           <CorrectIncorrect
             legend="Is the nomenclature standardized?"
             name="level3.nomenclatureStandardized"
@@ -1241,8 +1326,10 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         <FieldAnchor
           id="l3-safety"
           error={hasError("l3-safety")}
+          highlight={isHot("level3.safetyCheckPass")}
           style={{ padding: 8, borderRadius: 8, margin: "10px 0" }}
         >
+          <PriorHint path="level3.safetyCheckPass" />
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>Safety Check (Pass / Fail)</legend>
             <label style={{ marginRight: 12 }}>

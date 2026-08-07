@@ -105,17 +105,32 @@ export async function syncSharedAssignmentsForExpert(expertDbId: string) {
     select: { id: true, videoOutputId: true },
   });
 
+  const { GRADERS_PER_VIDEO } = await import("./graders");
+
   const sharedOutputs = outputs.filter((o) => {
     const n = parseVideoNumber(o.videoOutputId);
     return n !== null && isInRanges(n, config.sharedRanges);
   });
 
   for (const o of sharedOutputs) {
-    const existing = await prisma.taskAssignment.findFirst({
+    const existingMine = await prisma.taskAssignment.findFirst({
       where: { expertId: expertDbId, aiOutputId: o.id },
       select: { id: true },
     });
-    if (existing) continue;
+    if (existingMine) continue;
+
+    const count = await prisma.taskAssignment.count({
+      where: { aiOutputId: o.id },
+    });
+    if (count >= GRADERS_PER_VIDEO) continue;
+
+    const used = await prisma.taskAssignment.findMany({
+      where: { aiOutputId: o.id },
+      select: { graderSlot: true },
+    });
+    const usedSlots = new Set(used.map((u) => u.graderSlot));
+    let slot = 1;
+    while (usedSlots.has(slot) && slot <= GRADERS_PER_VIDEO) slot += 1;
 
     await prisma.taskAssignment.create({
       data: {
@@ -123,6 +138,7 @@ export async function syncSharedAssignmentsForExpert(expertDbId: string) {
         aiOutputId: o.id,
         kind: AssignmentKind.SHARED,
         status: "PENDING",
+        graderSlot: slot,
       },
     });
   }
