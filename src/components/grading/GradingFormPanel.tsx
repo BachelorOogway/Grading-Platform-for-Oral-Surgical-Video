@@ -69,6 +69,40 @@ function FieldAnchor({
   );
 }
 
+function DiscrepancySolveButton({
+  selected,
+  onToggle,
+}: {
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      style={{
+        marginTop: 8,
+        display: "block",
+        width: "100%",
+        background: selected ? "#991b1b" : "#dc2626",
+        color: "#fff",
+        border: selected ? "2px solid #450a0a" : "1px solid #b91c1c",
+        borderRadius: 6,
+        padding: "7px 10px",
+        fontSize: 12,
+        fontWeight: 700,
+        cursor: "pointer",
+        letterSpacing: 0.2,
+      }}
+    >
+      {selected ? "discrepancy solve 路 marked" : "discrepancy solve"}
+    </button>
+  );
+}
 function CorrectIncorrect({
   legend,
   name,
@@ -185,8 +219,11 @@ type Props = {
   submitting?: boolean;
   /** Categorical paths where grader1 ≠ grader2 (yellow highlight) */
   highlightPaths?: Set<string>;
-  /** Optional prior answers shown above highlighted fields */
-  priorHints?: Record<string, { g1: string; g2: string }>;
+  discrepancySolvePaths?: Set<string>;
+  showDiscrepancySolve?: boolean;
+  onToggleDiscrepancySolve?: (path: string) => void;
+  formTitle?: string;
+  hideSubmit?: boolean;
 };
 
 export function GradingFormPanel({
@@ -203,7 +240,11 @@ export function GradingFormPanel({
   canSubmit,
   submitting = false,
   highlightPaths,
-  priorHints,
+  discrepancySolvePaths,
+  showDiscrepancySolve = false,
+  onToggleDiscrepancySolve,
+  formTitle,
+  hideSubmit = false,
 }: Props) {
   const l1 = parsed.level1;
   const l2 = parsed.level2;
@@ -224,24 +265,15 @@ export function GradingFormPanel({
   }, [showErrors, incompleteFields]);
   const hasError = (id: string) => errorIds.has(id);
   const isHot = (path: string) => Boolean(highlightPaths?.has(path));
-  function PriorHint({ path }: { path: string }) {
-    const h = priorHints?.[path];
-    if (!h) return null;
+  function DiscSolve({ path }: { path: string }) {
+    if (!showDiscrepancySolve || !onToggleDiscrepancySolve || !isHot(path)) {
+      return null;
+    }
     return (
-      <div
-        style={{
-          fontSize: 12,
-          marginBottom: 6,
-          padding: "4px 8px",
-          background: "#fef9c3",
-          borderRadius: 4,
-          color: "var(--ink-soft)",
-        }}
-      >
-        G1: <strong>{h.g1}</strong>
-        <span style={{ margin: "0 8px" }}>·</span>
-        G2: <strong>{h.g2}</strong>
-      </div>
+      <DiscrepancySolveButton
+        selected={Boolean(discrepancySolvePaths?.has(path))}
+        onToggle={() => onToggleDiscrepancySolve(path)}
+      />
     );
   }
 
@@ -368,6 +400,19 @@ export function GradingFormPanel({
       }}
       style={{ opacity: completed ? 0.7 : 1 }}
     >
+      {formTitle ? (
+        <div
+          className="section-title"
+          style={{
+            fontSize: 15,
+            marginBottom: 10,
+            paddingBottom: 8,
+            borderBottom: "1px solid var(--line)",
+          }}
+        >
+          {formTitle}
+        </div>
+      ) : null}
       {incompleteBanner}
       <div className="grading-card">
         <div className="grading-card-title">Level 1 — Perception</div>
@@ -378,7 +423,7 @@ export function GradingFormPanel({
           highlight={isHot("level1.procedureTypeCorrect")}
           className="grading-sub"
         >
-          <PriorHint path="level1.procedureTypeCorrect" />
+          <DiscSolve path="level1.procedureTypeCorrect" />
           <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>Procedure Type</div>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "var(--ink)" }}>
             AI: {l1.procedureType || "—"}
@@ -438,8 +483,8 @@ export function GradingFormPanel({
               }
               className="grading-sub"
             >
-              <PriorHint path={`level1.structures.${i}.correct`} />
-              <PriorHint path={`level1.structures.${i}.incorrectReason`} />
+              <DiscSolve path={`level1.structures.${i}.correct`} />
+              <DiscSolve path={`level1.structures.${i}.incorrectReason`} />
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{s.name}</div>
               <CorrectIncorrect
                 legend="Structure Correct / Incorrect"
@@ -560,8 +605,8 @@ export function GradingFormPanel({
               }
               className="grading-sub"
             >
-              <PriorHint path={`level1.instruments.${i}.correct`} />
-              <PriorHint path={`level1.instruments.${i}.incorrectReason`} />
+              <DiscSolve path={`level1.instruments.${i}.correct`} />
+              <DiscSolve path={`level1.instruments.${i}.incorrectReason`} />
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{inst.name}</div>
               <CorrectIncorrect
                 legend="Instrument Correct / Incorrect"
@@ -700,7 +745,7 @@ export function GradingFormPanel({
           highlight={isHot("level1.spatialPositioningCorrect")}
           className="grading-sub"
         >
-          <PriorHint path="level1.spatialPositioningCorrect" />
+          <DiscSolve path="level1.spatialPositioningCorrect" />
           {l1.spatialPositioning ? (
             <div style={{ fontSize: 13, color: "#444", marginBottom: 8 }}>
               AI: {l1.spatialPositioning}
@@ -787,9 +832,9 @@ export function GradingFormPanel({
                   : undefined
               }
             >
-              <PriorHint path={`level2.phases.${i}.segmentationCorrect`} />
-              <PriorHint path={`level2.phases.${i}.contentCorrect`} />
-              <PriorHint path={`level2.phases.${i}.phaseErrorType`} />
+              <DiscSolve path={`level2.phases.${i}.segmentationCorrect`} />
+              <DiscSolve path={`level2.phases.${i}.contentCorrect`} />
+              <DiscSolve path={`level2.phases.${i}.phaseErrorType`} />
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--accent-deep)" }}>
                 AI: [{p.aiStartTime} → {p.aiEndTime}]
               </div>
@@ -1147,7 +1192,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           highlight={isHot("level2.missedStepsDetectedCorrect")}
           style={{ marginTop: 10, padding: 8, borderRadius: 8 }}
         >
-          <PriorHint path="level2.missedStepsDetectedCorrect" />
+          <DiscSolve path="level2.missedStepsDetectedCorrect" />
           <CorrectIncorrect
             legend="Is the missed-phase content correct?"
             name="level2.missedStepsDetectedCorrect"
@@ -1213,7 +1258,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           highlight={isHot("level3.surgeryCompleted")}
           style={{ padding: 8, borderRadius: 8, margin: "10px 0" }}
         >
-          <PriorHint path="level3.surgeryCompleted" />
+          <DiscSolve path="level3.surgeryCompleted" />
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>Is the surgery completed? (Yes / No)</legend>
             <label style={{ marginRight: 12 }}>
@@ -1243,7 +1288,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           highlight={isHot("level3.nextActionAccurate")}
           style={{ padding: 8, borderRadius: 8 }}
         >
-          <PriorHint path="level3.nextActionAccurate" />
+          <DiscSolve path="level3.nextActionAccurate" />
           <CorrectIncorrect
             legend="Is the Next Action medically accurate?"
             name="level3.nextActionAccurate"
@@ -1285,7 +1330,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           highlight={isHot("level3.nomenclatureStandardized")}
           style={{ marginTop: 10, padding: 8, borderRadius: 8 }}
         >
-          <PriorHint path="level3.nomenclatureStandardized" />
+          <DiscSolve path="level3.nomenclatureStandardized" />
           <CorrectIncorrect
             legend="Is the nomenclature standardized?"
             name="level3.nomenclatureStandardized"
@@ -1329,7 +1374,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           highlight={isHot("level3.safetyCheckPass")}
           style={{ padding: 8, borderRadius: 8, margin: "10px 0" }}
         >
-          <PriorHint path="level3.safetyCheckPass" />
+          <DiscSolve path="level3.safetyCheckPass" />
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>Safety Check (Pass / Fail)</legend>
             <label style={{ marginRight: 12 }}>
@@ -1494,7 +1539,8 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
 
       {incompleteBanner}
 
-      <button
+      {!hideSubmit ? (
+<button
         type="submit"
         disabled={completed || !canSubmit || submitting}
         className="btn btn-primary btn-block"
@@ -1508,6 +1554,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
               ? "提交评分（检查未填项）"
               : "提交评分"}
       </button>
+      ) : null}
     </form>
   );
 }

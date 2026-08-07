@@ -17,11 +17,8 @@ import {
   type GradingForm,
 } from "@/lib/gradingForm";
 import { GradingFormPanel } from "@/components/grading/GradingFormPanel";
-import { ConsensusSidePanel } from "@/components/grading/ConsensusSidePanel";
-import {
-  PriorCategoricalColumn,
-  disagreePathSet,
-} from "@/components/grading/PriorCategoricalColumn";
+import { PriorAlignedForm } from "@/components/grading/PriorAlignedForm";
+import { disagreePathSet } from "@/components/grading/PriorCategoricalColumn";
 import type { CategoricalDisagreement } from "@/lib/categoricalFields";
 
 type PriorGrader = {
@@ -113,13 +110,15 @@ export default function TaskGradingPage() {
     () => disagreePathSet(disagreements),
     [disagreements],
   );
-  const priorHints = useMemo(() => {
-    const m: Record<string, { g1: string; g2: string }> = {};
-    for (const d of disagreements) {
-      m[d.path] = { g1: d.grader1Value, g2: d.grader2Value };
-    }
-    return m;
-  }, [disagreements]);
+
+  function toggleDiscSolve(path: string) {
+    setSelectedDisc((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const id = localStorage.getItem("expertId");
@@ -250,8 +249,11 @@ export default function TaskGradingPage() {
       completed={completed}
       canSubmit={canSubmit}
       submitting={submitting}
-      highlightPaths={isTiebreaker ? highlightPaths : undefined}
-      priorHints={isTiebreaker ? priorHints : undefined}
+      formTitle={
+        isTiebreaker
+          ? `Grader 3 · ${task.expert.expertId} (you)`
+          : undefined
+      }
     />
   );
 
@@ -259,7 +261,7 @@ export default function TaskGradingPage() {
     <main className="app-shell">
       <div
         className="app-shell-inner"
-        style={{ maxWidth: isTiebreaker ? 1400 : undefined }}
+        style={{ maxWidth: isTiebreaker ? 1680 : undefined }}
       >
         <div className="brand-mark">Oral Surgical Grading</div>
         <div className="page-header-row">
@@ -277,7 +279,7 @@ export default function TaskGradingPage() {
               {completed
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
-                  ? "你是第 3 位评分者。并排对照前两位选择题；黄标为分歧。未勾选 discrepancy solve 的项提交时按 2:1 多数决；勾选项登记到 Dashboard，无投票。"
+                  ? "三位评分表并排对照。前两位分歧项在其表单中黄标；红按钮标记 discrepancy solve（不多数决）。你的表单不显示前两位答案。"
                   : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>
@@ -313,44 +315,43 @@ export default function TaskGradingPage() {
           </div>
         ) : null}
 
+        {isTiebreaker && selectedDisc.size > 0 ? (
+          <div className="notice notice-info">
+            已标记 {selectedDisc.size} 项 discrepancy solve（提交时登记，不做 2:1 多数决）
+          </div>
+        ) : null}
+
         {submitError ? <div className="notice notice-danger">{submitError}</div> : null}
 
         {isTiebreaker && g1 && g2 ? (
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "minmax(180px, 1fr) minmax(180px, 1fr) minmax(280px, 1.4fr) minmax(220px, 0.9fr)",
+              gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 1fr) minmax(320px, 1.15fr)",
               gap: 12,
               alignItems: "start",
               overflowX: "auto",
             }}
           >
-            <PriorCategoricalColumn
-              title={`Grader 1 · ${g1.expertId}`}
+            <PriorAlignedForm
+              title={`Grader 1 · ${g1.expertId} (${g1.name})`}
+              parsed={parsed}
               gradingData={g1.gradingData}
-              disagreePaths={highlightPaths}
+              highlightPaths={highlightPaths}
+              discrepancySolvePaths={selectedDisc}
+              onToggleDiscrepancySolve={toggleDiscSolve}
+              showDiscrepancySolve={!completed}
             />
-            <PriorCategoricalColumn
-              title={`Grader 2 · ${g2.expertId}`}
+            <PriorAlignedForm
+              title={`Grader 2 · ${g2.expertId} (${g2.name})`}
+              parsed={parsed}
               gradingData={g2.gradingData}
-              disagreePaths={highlightPaths}
+              highlightPaths={highlightPaths}
+              discrepancySolvePaths={selectedDisc}
+              onToggleDiscrepancySolve={toggleDiscSolve}
+              showDiscrepancySolve={!completed}
             />
             <div>{formPanel}</div>
-            <ConsensusSidePanel
-              disagreements={disagreements}
-              priorGraders={priorGraders}
-              selectedForDiscrepancy={selectedDisc}
-              onToggleDiscrepancy={(path) => {
-                setSelectedDisc((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(path)) next.delete(path);
-                  else next.add(path);
-                  return next;
-                });
-              }}
-              completed={completed}
-            />
           </div>
         ) : (
           formPanel
