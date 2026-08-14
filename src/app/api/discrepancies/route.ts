@@ -83,6 +83,10 @@ export async function POST(req: Request) {
         createdByExpert: expert.expertId,
       },
     });
+    // Fresh round: clear previous submissions
+    await prisma.discrepancyVote.deleteMany({
+      where: { discrepancyItemId: item.id },
+    });
     created.push(item);
   }
 

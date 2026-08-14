@@ -41,7 +41,7 @@ export function ConsensusSidePanel({
         第 3 评分者 · 对照与分歧
       </h2>
       <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-        前两位在<strong>选择题</strong>上的分歧已黄标。提交时：
+        前两位在<strong>选择题</strong>上的分歧已粉标。提交时：
         <strong>未勾选</strong>的项按三位答案多数决（2:1）写入最终答案；
         <strong>勾选 discrepancy solve</strong>的项不自动多数决，会显示在三位评分者的
         Dashboard 上供进一步处理。无投票。Level 4 与手填不参与对照。
@@ -59,7 +59,7 @@ export function ConsensusSidePanel({
       </div>
 
       {disagreements.length === 0 ? (
-        <div className="notice notice-ok">前两位在选择题上意见一致，无黄标项。</div>
+        <div className="notice notice-ok">前两位在选择题上意见一致，无粉标项。</div>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
           {disagreements.map((d) => (
@@ -67,8 +67,8 @@ export function ConsensusSidePanel({
               key={d.path}
               id={`consensus-${d.path.replace(/\./g, "-")}`}
               style={{
-                background: "#fef9c3",
-                border: "1px solid #eab308",
+                background: "#fce7f3",
+                border: "1px solid #f9a8d4",
                 borderRadius: 8,
                 padding: 10,
                 fontSize: 13,
@@ -113,7 +113,7 @@ export function ConsensusSidePanel({
   );
 }
 
-/** Map field path → CSS marker class for yellow highlight in the form */
+/** Map field path → CSS marker class for pink highlight in the form */
 export function disagreementPathSet(disagreements: CategoricalDisagreement[]) {
   return new Set(disagreements.map((d) => d.path));
 }

@@ -20,7 +20,10 @@ import { GradingFormPanel } from "@/components/grading/GradingFormPanel";
 import { PriorAlignedForm } from "@/components/grading/PriorAlignedForm";
 import { disagreePathSet } from "@/components/grading/PriorCategoricalColumn";
 import { useConsensusRowAlign } from "@/components/grading/useConsensusRowAlign";
-import type { CategoricalDisagreement } from "@/lib/categoricalFields";
+import {
+  relatedDiscrepancyPaths,
+  type CategoricalDisagreement,
+} from "@/lib/categoricalFields";
 
 type PriorGrader = {
   expertId: string;
@@ -108,16 +111,23 @@ export default function TaskGradingPage() {
   const isTiebreaker = Boolean(task?.consensus?.isTiebreaker);
   const disagreements = task?.consensus?.disagreements ?? [];
   const priorGraders = task?.consensus?.priorGraders ?? [];
-  const highlightPaths = useMemo(
-    () => disagreePathSet(disagreements),
-    [disagreements],
-  );
+  const highlightPaths = useMemo(() => {
+    const s = disagreePathSet(disagreements);
+    for (const d of task?.openDiscrepancies ?? []) {
+      for (const p of relatedDiscrepancyPaths(d.fieldPath)) {
+        s.add(p);
+      }
+    }
+    return s;
+  }, [disagreements, task?.openDiscrepancies]);
 
   function toggleDiscSolve(path: string) {
     void (async () => {
       if (!task || !expertId) return;
       const label =
-        disagreements.find((d) => d.path === path)?.label ?? path;
+        disagreements.find((d) => d.path === path)?.label ??
+        task.openDiscrepancies?.find((d) => d.fieldPath === path)?.fieldLabel ??
+        path;
       const turningOn = !selectedDisc.has(path);
 
       setSelectedDisc((prev) => {
@@ -340,7 +350,7 @@ export default function TaskGradingPage() {
               {completed
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
-                  ? "三位评分表并排对照。分歧项黄标；在你的表单点红色 discrepancy solve 后，三位评分者 Dashboard 会立即显示该题（含视频 ID）。未标记项提交时按 2:1 多数决。"
+                  ? "三位评分表并排对照。分歧项粉标；在你的表单点红色 discrepancy solve 后，三位评分者 Dashboard 会立即显示该题（含视频 ID）。Level 2 起止时间若任意两人相差超过 3 秒也会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
                   : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>

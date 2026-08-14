@@ -90,6 +90,7 @@ export async function GET(req: Request) {
       },
     },
     include: {
+      votes: true,
       aiOutput: {
         select: {
           videoOutputId: true,
@@ -104,14 +105,21 @@ export async function GET(req: Request) {
     orderBy: { createdAt: "asc" },
   });
 
-  const discrepancies = openDiscrepancies.map((d) => ({
-    id: d.id,
-    videoOutputId: d.aiOutput.videoOutputId,
-    fieldPath: d.fieldPath,
-    fieldLabel: d.fieldLabel,
-    status: d.status,
-    taskAssignmentId: d.aiOutput.assignments[0]?.id ?? null,
-  }));
+  const discrepancies = openDiscrepancies.map((d) => {
+    const myVote = d.votes.find((v) => v.expertId === expert.expertId);
+    return {
+      id: d.id,
+      videoOutputId: d.aiOutput.videoOutputId,
+      fieldPath: d.fieldPath,
+      fieldLabel: d.fieldLabel,
+      status: d.status,
+      taskAssignmentId: d.aiOutput.assignments[0]?.id ?? null,
+      submittedCount: d.votes.length,
+      total: GRADERS_PER_VIDEO,
+      mySubmitted: Boolean(myVote),
+      myChoice: myVote?.choice ?? null,
+    };
+  });
 
   return NextResponse.json({
     config,

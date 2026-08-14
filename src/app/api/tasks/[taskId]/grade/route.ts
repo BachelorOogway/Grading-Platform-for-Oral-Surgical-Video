@@ -8,6 +8,7 @@ import {
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
 import { isTiebreakerSlot } from "@/lib/graders";
+import { findTimingBoundDiscrepancies } from "@/lib/timingDiscrepancy";
 
 export async function POST(
   req: Request,
@@ -99,7 +100,7 @@ export async function POST(
         const disagreements = g1 && g2 ? findCategoricalDisagreements(g1, g2) : [];
         const labelByPath = new Map(disagreements.map((d) => [d.path, d.label]));
         for (const path of discrepancySolvePaths) {
-          await prisma.discrepancyItem.upsert({
+          const item = await prisma.discrepancyItem.upsert({
             where: {
               aiOutputId_fieldPath: {
                 aiOutputId: assignment.aiOutputId,
@@ -119,6 +120,9 @@ export async function POST(
               status: "OPEN",
               createdByExpert: expert.expertId,
             },
+          });
+          await prisma.discrepancyVote.deleteMany({
+            where: { discrepancyItemId: item.id },
           });
         }
       }
@@ -179,7 +183,68 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ ok: true, graderSlot: assignment.graderSlot });
+    // Level 2 timing: if any two experts' start/end differ by >3s, open discrepancy
+    const completedAssignments = await prisma.taskAssignment.findMany({
+      where: {
+        aiOutputId: assignment.aiOutputId,
+        status: "COMPLETED",
+      },
+      include: { gradingResult: true },
+      orderBy: { graderSlot: "asc" },
+    });
+    const completedGradings = completedAssignments
+      .map((a) =>
+        a.gradingResult
+          ? parseJsonSafe(a.gradingResult.gradingData, null)
+          : null,
+      )
+      .filter((g): g is object => Boolean(g && typeof g === "object"));
+
+    const timingItems = findTimingBoundDiscrepancies(completedGradings);
+    for (const t of timingItems) {
+      const existing = await prisma.discrepancyItem.findUnique({
+        where: {
+          aiOutputId_fieldPath: {
+            aiOutputId: assignment.aiOutputId,
+            fieldPath: t.path,
+          },
+        },
+        select: { id: true, status: true },
+      });
+      // Already open: do not wipe in-progress submissions
+      if (existing?.status === "OPEN") continue;
+
+      const item = await prisma.discrepancyItem.upsert({
+        where: {
+          aiOutputId_fieldPath: {
+            aiOutputId: assignment.aiOutputId,
+            fieldPath: t.path,
+          },
+        },
+        update: {
+          status: "OPEN",
+          resolvedValue: null,
+          fieldLabel: t.label,
+          createdByExpert: expert.expertId,
+        },
+        create: {
+          aiOutputId: assignment.aiOutputId,
+          fieldPath: t.path,
+          fieldLabel: t.label,
+          status: "OPEN",
+          createdByExpert: expert.expertId,
+        },
+      });
+      await prisma.discrepancyVote.deleteMany({
+        where: { discrepancyItemId: item.id },
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      graderSlot: assignment.graderSlot,
+      timingDiscrepancies: timingItems.map((t) => t.path),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[grade POST]", message);

@@ -160,6 +160,48 @@ function normToken(raw: unknown): string | null {
   return String(raw);
 }
 
+/** Public compare token for discrepancy consensus. */
+export function categoricalCompareToken(raw: unknown): string | null {
+  return normToken(raw);
+}
+
+/** When saving a discrepancy answer, also copy these related paths from the form. */
+export function relatedDiscrepancyPaths(fieldPath: string): string[] {
+  const paths = [fieldPath];
+  if (fieldPath.endsWith(".correct")) {
+    paths.push(fieldPath.replace(/\.correct$/, ".incorrectReason"));
+  }
+  if (fieldPath.endsWith(".contentCorrect")) {
+    paths.push(fieldPath.replace(/\.contentCorrect$/, ".phaseErrorType"));
+  }
+  if (fieldPath.endsWith(".nextActionAccurate")) {
+    paths.push(fieldPath.replace(/\.nextActionAccurate$/, ".nextActionCorrection"));
+  }
+  if (fieldPath.endsWith(".nomenclatureStandardized")) {
+    paths.push(
+      fieldPath.replace(/\.nomenclatureStandardized$/, ".nomenclatureCorrection"),
+    );
+  }
+  if (fieldPath.endsWith(".missedStepsDetectedCorrect")) {
+    paths.push(
+      fieldPath.replace(/\.missedStepsDetectedCorrect$/, ".missedStepsCorrection"),
+    );
+  }
+  if (fieldPath.endsWith(".segmentationCorrect")) {
+    const base = fieldPath.replace(/\.segmentationCorrect$/, "");
+    paths.push(`${base}.trueStartTime`, `${base}.trueEndTime`);
+  }
+  if (fieldPath.endsWith(".trueStartTime")) {
+    const base = fieldPath.replace(/\.trueStartTime$/, "");
+    paths.push(`${base}.trueEndTime`, `${base}.segmentationCorrect`);
+  }
+  if (fieldPath.endsWith(".trueEndTime")) {
+    const base = fieldPath.replace(/\.trueEndTime$/, "");
+    paths.push(`${base}.trueStartTime`, `${base}.segmentationCorrect`);
+  }
+  return paths;
+}
+
 /** Get comparable token for a path from grading payload. */
 export function getCategoricalRaw(grading: any, path: string): unknown {
   const parts = path.split(".");

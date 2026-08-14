@@ -37,8 +37,8 @@ export function PriorCategoricalColumn({
                 borderRadius: 6,
                 fontSize: 12,
                 lineHeight: 1.4,
-                background: hot ? "#fef9c3" : "transparent",
-                border: hot ? "1px solid #eab308" : "1px solid transparent",
+                background: hot ? "#fce7f3" : "transparent",
+                border: hot ? "1px solid #f9a8d4" : "1px solid transparent",
               }}
             >
               <div style={{ color: "var(--muted)", marginBottom: 2 }}>{f.label}</div>

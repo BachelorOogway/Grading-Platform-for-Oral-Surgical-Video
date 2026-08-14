@@ -28,6 +28,10 @@ type DiscItem = {
   fieldPath: string;
   fieldLabel: string;
   taskAssignmentId: string | null;
+  submittedCount?: number;
+  total?: number;
+  mySubmitted?: boolean;
+  myChoice?: string | null;
 };
 
 export default function DashboardPage() {
@@ -150,18 +154,19 @@ export default function DashboardPage() {
         </div>
 
         {discrepancies.length > 0 ? (
-          <section className="section-block" style={{ borderColor: "#eab308" }}>
+          <section className="section-block" style={{ borderColor: "#f9a8d4" }}>
             <h2 className="section-title">Discrepancy solve · 需进一步处理</h2>
             <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-              第三评分者已标记的分歧项。每位相关评分者都能看到（含视频 ID）。无投票。
+              打开后进入与第 3 评分者相同的三表对照界面；每人只改自己的答案。
+              三人提交完全相同答案后才会从列表移除。
             </p>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
               {discrepancies.map((d) => (
                 <li
                   key={d.id}
                   style={{
-                    background: "#fef9c3",
-                    border: "1px solid #eab308",
+                    background: "#fce7f3",
+                    border: "1px solid #f9a8d4",
                     borderRadius: 8,
                     padding: 12,
                     display: "flex",
@@ -179,19 +184,18 @@ export default function DashboardPage() {
                       {d.fieldLabel}
                     </div>
                     <div className="muted" style={{ fontSize: 12 }}>
-                      {d.fieldPath}
+                      已提交 {d.submittedCount ?? 0}/{d.total ?? 3}
+                      {d.mySubmitted ? " · 你已提交" : " · 待你提交"}
                     </div>
                   </div>
-                  {d.taskAssignmentId ? (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: 12 }}
-                      onClick={() => router.push(`/tasks/${d.taskAssignmentId}`)}
-                    >
-                      打开任务
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ fontSize: 12 }}
+                    onClick={() => router.push(`/discrepancies/${d.id}`)}
+                  >
+                    打开对照重评
+                  </button>
                 </li>
               ))}
             </ul>
