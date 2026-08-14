@@ -26,25 +26,40 @@ type GraderCol = {
   name: string;
   gradingData: unknown;
   submittedForDiscrepancy: boolean;
-  submittedChoice: string | null;
+  submittedPaths?: string[];
+  solvingResultsLabel?: string | null;
+};
+
+type OpenItemProgress = {
+  id: string;
+  fieldPath: string;
+  fieldLabel: string;
+  submittedCount: number;
+  total: number;
+  allSame: boolean;
+  mySubmitted: boolean;
 };
 
 type DiscDetail = {
   id: string;
   status: string;
-  fieldPath: string;
-  fieldLabel: string;
-  resolvedValue?: string | null;
   videoOutputId: string;
   parsedData: AiParsedData;
   mySlot: number;
   myExpertId: string;
+  items: Array<{
+    id: string;
+    fieldPath: string;
+    fieldLabel: string;
+    status: string;
+  }>;
+  openItems: OpenItemProgress[];
+  highlightPaths: string[];
   graders: GraderCol[];
   progress: {
-    submittedCount: number;
-    total: number;
-    allSubmitted: boolean;
-    allSame: boolean;
+    openFieldCount: number;
+    expertsSubmittedCount: number;
+    totalExperts: number;
   };
 };
 
@@ -84,11 +99,10 @@ function asGradingObject(raw: unknown): unknown {
   return raw;
 }
 
-/** Own column: hydrate once per mount; never reset while typing. */
 function OwnDiscrepancyColumn({
   parsed,
   initialGradingData,
-  fieldPath,
+  fieldPaths,
   title,
   highlightPaths,
   domPrefix,
@@ -97,14 +111,14 @@ function OwnDiscrepancyColumn({
 }: {
   parsed: AiParsedData;
   initialGradingData: unknown;
-  fieldPath: string;
+  fieldPaths: string[];
   title: string;
   highlightPaths: Set<string>;
   domPrefix: string;
   submitting: boolean;
   onSubmit: (payload: {
     gradingData: unknown;
-    fieldValue: unknown;
+    fieldValues: Record<string, unknown>;
   }) => Promise<void>;
 }) {
   const saved = asGradingObject(initialGradingData);
@@ -120,31 +134,30 @@ function OwnDiscrepancyColumn({
     let gradingData: any;
     try {
       gradingData = buildGradingPayload(values, parsed);
-    } catch (err) {
-      // Fall back to patching only the discrepancy field onto existing data
+    } catch {
       gradingData =
-        saved && typeof saved === "object"
-          ? structuredClone(saved)
-          : {};
+        saved && typeof saved === "object" ? structuredClone(saved) : {};
     }
 
-    const fieldValue =
-      getCategoricalRaw(gradingData, fieldPath) ??
-      readFormPath(values, fieldPath) ??
-      (saved ? getCategoricalRaw(saved, fieldPath) : null);
-
-    if (fieldValue != null && fieldValue !== "") {
-      setCategoricalRaw(gradingData, fieldPath, fieldValue);
+    const fieldValues: Record<string, unknown> = {};
+    for (const fieldPath of fieldPaths) {
+      const fieldValue =
+        getCategoricalRaw(gradingData, fieldPath) ??
+        readFormPath(values, fieldPath) ??
+        (saved ? getCategoricalRaw(saved, fieldPath) : null);
+      if (fieldValue != null && fieldValue !== "") {
+        setCategoricalRaw(gradingData, fieldPath, fieldValue);
+        fieldValues[fieldPath] = fieldValue;
+      }
+      for (const path of relatedDiscrepancyPaths(fieldPath)) {
+        if (path === fieldPath) continue;
+        const v =
+          getCategoricalRaw(gradingData, path) ?? readFormPath(values, path);
+        if (v != null && v !== "") setCategoricalRaw(gradingData, path, v);
+      }
     }
 
-    for (const path of relatedDiscrepancyPaths(fieldPath)) {
-      if (path === fieldPath) continue;
-      const v =
-        getCategoricalRaw(gradingData, path) ?? readFormPath(values, path);
-      if (v != null && v !== "") setCategoricalRaw(gradingData, path, v);
-    }
-
-    await onSubmit({ gradingData, fieldValue });
+    await onSubmit({ gradingData, fieldValues });
   }
 
   return (
@@ -176,7 +189,7 @@ function OwnDiscrepancyColumn({
         disabled={submitting}
         onClick={() => void submitNow()}
       >
-        {submitting ? "提交中…" : "提交 discrepancy 答案"}
+        {submitting ? "Submitting…" : "Submit discrepancy answers"}
       </button>
     </div>
   );
@@ -192,54 +205,57 @@ export default function DiscrepancyResolvePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [ownFormEpoch, setOwnFormEpoch] = useState(0);
 
-  const load = useCallback(
-    async (opts?: { quiet?: boolean }) => {
-      const expertId = localStorage.getItem("expertId");
-      if (!expertId) {
-        router.push("/login");
+  const load = useCallback(async () => {
+    const expertId = localStorage.getItem("expertId");
+    if (!expertId) {
+      router.push("/login");
+      return;
+    }
+    if (!discId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/discrepancies/${discId}?expertId=${encodeURIComponent(expertId)}`,
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error || `Load failed (${res.status})`);
+        setDetail(null);
         return;
       }
-      if (!discId) return;
-      if (!opts?.quiet) setLoading(true);
-      try {
-        const res = await fetch(
-          `/api/discrepancies/${discId}?expertId=${encodeURIComponent(expertId)}`,
-        );
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data?.error || `加载失败（${res.status}）`);
-          setDetail(null);
-          return;
-        }
-        setDetail(data);
-        setError(null);
-      } finally {
-        if (!opts?.quiet) setLoading(false);
-      }
-    },
-    [discId, router],
-  );
+      setDetail(data);
+      setError(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [discId, router]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const parsed = detail?.parsedData ?? EMPTY_PARSED;
+  const fieldPaths = useMemo(
+    () => (detail?.openItems ?? []).map((d) => d.fieldPath),
+    [detail],
+  );
   const highlightPaths = useMemo(() => {
     if (!detail) return new Set<string>();
-    return new Set(relatedDiscrepancyPaths(detail.fieldPath));
-  }, [detail]);
+    if (Array.isArray(detail.highlightPaths) && detail.highlightPaths.length) {
+      return new Set(detail.highlightPaths);
+    }
+    return new Set(fieldPaths.flatMap((p) => relatedDiscrepancyPaths(p)));
+  }, [detail, fieldPaths]);
 
-  useConsensusRowAlign(Boolean(detail && detail.status === "OPEN"), "[data-consensus-align-root]", [
-    detail?.fieldPath,
-    detail?.progress.submittedCount,
+  useConsensusRowAlign(Boolean(detail && fieldPaths.length > 0), "[data-consensus-align-root]", [
+    fieldPaths.join("|"),
+    detail?.progress.expertsSubmittedCount,
   ]);
 
   async function onSubmit(payload: {
     gradingData: unknown;
-    fieldValue: unknown;
+    fieldValues: Record<string, unknown>;
   }) {
     if (!detail) return;
     const expertId = localStorage.getItem("expertId");
@@ -254,24 +270,18 @@ export default function DiscrepancyResolvePage() {
         body: JSON.stringify({
           expertId,
           gradingData: payload.gradingData,
-          fieldValue: payload.fieldValue,
+          fieldValues: payload.fieldValues,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data?.error || `提交失败（${res.status}）`);
+        setError(data?.error || `Submit failed (${res.status})`);
         return;
       }
-      if (data.resolved) {
-        setInfo(`三人答案一致，discrepancy 已解决（${data.resolvedValue}）`);
-        setTimeout(() => router.push("/dashboard"), 1200);
-        return;
-      }
-      setInfo(
-        `已提交你的答案（${data.submittedCount}/${data.total}）。需三人答案完全相同才会关闭。`,
-      );
-      await load({ quiet: true });
-      setOwnFormEpoch((n) => n + 1);
+      setInfo("Submission successful");
+      setTimeout(() => {
+        router.push("/dashboard?discSubmitted=1");
+      }, 900);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -283,7 +293,7 @@ export default function DiscrepancyResolvePage() {
     return (
       <main className="app-shell">
         <div className="app-shell-inner muted">
-          {error || "正在加载 discrepancy…"}
+          {error || "Loading discrepancy…"}
         </div>
       </main>
     );
@@ -293,9 +303,8 @@ export default function DiscrepancyResolvePage() {
   const g2 = detail.graders.find((g) => g.graderSlot === 2);
   const g3 = detail.graders.find((g) => g.graderSlot === 3);
   const cols = [g1, g2, g3];
-
-  const resolved = detail.status !== "OPEN";
   const myExpertId = detail.myExpertId;
+  const noOpen = fieldPaths.length === 0;
 
   return (
     <main className="app-shell">
@@ -307,10 +316,10 @@ export default function DiscrepancyResolvePage() {
               Discrepancy solve · {detail.videoOutputId}
             </h1>
             <p className="page-lead" style={{ marginBottom: 12 }}>
-              题目：<strong>{detail.fieldLabel}</strong>
-              。三表并排对照（与第 3 评分者相同）。你只能修改自己的一列。
-              三人提交完全相同答案后，该项才会从 Dashboard 消失。
-              进度：{detail.progress.submittedCount}/{detail.progress.total}
+              All open discrepancy fields for this video are shown in one form
+              (pink). Edit only your column, then submit once. After you submit,
+              you return to the Dashboard; other experts will see your answers as
+              solving results.
             </p>
           </div>
           <button
@@ -318,17 +327,12 @@ export default function DiscrepancyResolvePage() {
             className="btn btn-ghost"
             onClick={() => router.push("/dashboard")}
           >
-            返回
+            Back
           </button>
         </div>
 
-        {resolved ? (
-          <div className="notice notice-ok">
-            已解决：{detail.resolvedValue ?? "—"}
-          </div>
-        ) : null}
         {error ? <div className="notice notice-danger">{error}</div> : null}
-        {info ? <div className="notice notice-info">{info}</div> : null}
+        {info ? <div className="notice notice-ok">{info}</div> : null}
 
         <div
           className="notice"
@@ -339,64 +343,114 @@ export default function DiscrepancyResolvePage() {
             color: "#9d174d",
           }}
         >
-          粉标为 discrepancy 字段。请在自己的表单中给出答案后点「提交 discrepancy 答案」。
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>
+            Open fields on this form ({detail.openItems.length})
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {detail.openItems.map((d) => (
+              <li key={d.id} style={{ marginBottom: 4 }}>
+                {d.fieldLabel}
+                <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                  submitted {d.submittedCount}/{d.total}
+                  {d.mySubmitted ? " · you submitted" : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+            Experts finished this round:{" "}
+            {detail.progress.expertsSubmittedCount}/
+            {detail.progress.totalExperts}
+          </div>
         </div>
 
-        <div
-          data-consensus-align-root
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "minmax(280px, 1fr) minmax(280px, 1fr) minmax(320px, 1.15fr)",
-            gap: 12,
-            alignItems: "start",
-            overflowX: "auto",
-          }}
-        >
-          {cols.map((g) => {
-            if (!g || !g.expertId) {
+        {noOpen ? (
+          <div className="notice notice-ok">
+            No open discrepancies left on this video.
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginLeft: 12 }}
+              onClick={() => router.push("/dashboard")}
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        ) : (
+          <div
+            data-consensus-align-root
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "minmax(280px, 1fr) minmax(280px, 1fr) minmax(320px, 1.15fr)",
+              gap: 12,
+              alignItems: "start",
+              overflowX: "auto",
+            }}
+          >
+            {cols.map((g) => {
+              if (!g || !g.expertId) {
+                return (
+                  <div
+                    key={`empty-${g?.graderSlot ?? "x"}`}
+                    className="section-block muted"
+                  >
+                    Grader {g?.graderSlot ?? "?"} not assigned
+                  </div>
+                );
+              }
+              const isMine = g.expertId === myExpertId;
+              const title = `Grader ${g.graderSlot} · ${g.expertId} (${g.name})${
+                isMine ? " · you" : ""
+              }`;
+
+              if (!isMine) {
+                return (
+                  <PriorAlignedForm
+                    key={g.graderSlot}
+                    title={title}
+                    parsed={parsed}
+                    gradingData={g.gradingData}
+                    highlightPaths={highlightPaths}
+                    domPrefix={`g${g.graderSlot}`}
+                    solvingResultsLabel={g.solvingResultsLabel}
+                  />
+                );
+              }
+
               return (
-                <div
-                  key={`empty-${g?.graderSlot ?? "x"}`}
-                  className="section-block muted"
-                >
-                  Grader {g?.graderSlot ?? "?"} 尚未分派
+                <div key={g.graderSlot}>
+                  {g.solvingResultsLabel ? (
+                    <div
+                      style={{
+                        background: "#fce7f3",
+                        border: "1px solid #f9a8d4",
+                        color: "#9d174d",
+                        borderRadius: 8,
+                        padding: "8px 10px",
+                        marginBottom: 8,
+                        fontWeight: 700,
+                        fontSize: 13,
+                      }}
+                    >
+                      {g.solvingResultsLabel} (you can update and resubmit)
+                    </div>
+                  ) : null}
+                  <OwnDiscrepancyColumn
+                    parsed={parsed}
+                    initialGradingData={g.gradingData}
+                    fieldPaths={fieldPaths}
+                    title={title}
+                    highlightPaths={highlightPaths}
+                    domPrefix={`g${g.graderSlot}`}
+                    submitting={submitting}
+                    onSubmit={onSubmit}
+                  />
                 </div>
               );
-            }
-            const isMine = g.expertId === myExpertId;
-            const title = `Grader ${g.graderSlot} · ${g.expertId} (${g.name})${
-              g.submittedForDiscrepancy ? " · 已提交" : ""
-            }${isMine ? " · 你" : ""}`;
-
-            if (!isMine || resolved) {
-              return (
-                <PriorAlignedForm
-                  key={g.graderSlot}
-                  title={title}
-                  parsed={parsed}
-                  gradingData={g.gradingData}
-                  highlightPaths={highlightPaths}
-                  domPrefix={`g${g.graderSlot}`}
-                />
-              );
-            }
-
-            return (
-              <OwnDiscrepancyColumn
-                key={`${detail.id}-${myExpertId}-${ownFormEpoch}`}
-                parsed={parsed}
-                initialGradingData={g.gradingData}
-                fieldPath={detail.fieldPath}
-                title={title}
-                highlightPaths={highlightPaths}
-                domPrefix={`g${g.graderSlot}`}
-                submitting={submitting}
-                onSubmit={onSubmit}
-              />
-            );
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </div>
     </main>
   );

@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [expertId, setExpertId] = useState<string | null>(null);
+  const [discSubmitNotice, setDiscSubmitNotice] = useState(false);
 
   const loadTasks = useCallback(async () => {
     const id = localStorage.getItem("expertId");
@@ -70,6 +71,15 @@ export default function DashboardPage() {
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("discSubmitted") === "1") {
+      setDiscSubmitNotice(true);
+      window.history.replaceState({}, "", "/dashboard");
+    }
+  }, []);
 
   async function onClaim(videoOutputId: string) {
     const id = localStorage.getItem("expertId");
@@ -153,12 +163,18 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {discSubmitNotice ? (
+          <div className="notice notice-ok" style={{ marginBottom: 12 }}>
+            Submission successful
+          </div>
+        ) : null}
+
         {discrepancies.length > 0 ? (
           <section className="section-block" style={{ borderColor: "#f9a8d4" }}>
             <h2 className="section-title">Discrepancy solve · 需进一步处理</h2>
             <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-              打开后进入与第 3 评分者相同的三表对照界面；每人只改自己的答案。
-              三人提交完全相同答案后才会从列表移除。
+              每条 discrepancy 单独列出；同一视频的多项会在同一个对照表单中一起处理。
+              提交后返回此页。其他专家提交后，其答案会标为 Solving results from expert xxx。
             </p>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
               {discrepancies.map((d) => (

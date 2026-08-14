@@ -5,13 +5,14 @@ import { GRADERS_PER_VIDEO } from "@/lib/graders";
 import {
   categoricalCompareToken,
   getCategoricalRaw,
+  relatedDiscrepancyPaths,
 } from "@/lib/categoricalFields";
 import {
   enrichParsedFromGrading,
   normalizeAiParsedData,
 } from "@/lib/normalizeParsed";
 
-/** Detail for discrepancy regrade UI (same 3-column layout as grader 3). */
+/** Detail for discrepancy regrade UI — all OPEN items on the same video share one form. */
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -37,7 +38,6 @@ export async function GET(
   const item = await prisma.discrepancyItem.findUnique({
     where: { id },
     include: {
-      votes: true,
       aiOutput: {
         select: {
           id: true,
@@ -70,24 +70,41 @@ export async function GET(
     );
   }
 
+  const openItems = await prisma.discrepancyItem.findMany({
+    where: { aiOutputId: item.aiOutputId, status: "OPEN" },
+    include: { votes: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const openPaths = openItems.map((d) => d.fieldPath);
+  const highlightPaths = Array.from(
+    new Set(openPaths.flatMap((p) => relatedDiscrepancyPaths(p))),
+  );
+
   const graders = item.aiOutput.assignments.map((a) => {
     const gradingData = a.gradingResult
       ? parseJsonSafe(a.gradingResult.gradingData, null)
       : null;
-    const vote = item.votes.find((v) => v.expertId === a.expert.expertId);
-    const currentRaw = gradingData
-      ? getCategoricalRaw(gradingData, item.fieldPath)
-      : null;
+    const eid = a.expert.expertId;
+    const submittedPaths = openItems
+      .filter((d) => d.votes.some((v) => v.expertId === eid))
+      .map((d) => d.fieldPath);
+    const submittedAllOpen =
+      openItems.length > 0 &&
+      openItems.every((d) => d.votes.some((v) => v.expertId === eid));
+
     return {
       taskAssignmentId: a.id,
       graderSlot: a.graderSlot,
-      expertId: a.expert.expertId,
+      expertId: eid,
       name: a.expert.name,
       gradingData,
-      submittedForDiscrepancy: Boolean(vote),
-      submittedChoice: vote?.choice ?? null,
-      currentValue: currentRaw,
-      currentToken: categoricalCompareToken(currentRaw),
+      submittedForDiscrepancy: submittedAllOpen,
+      submittedPaths,
+      /** Show "Solving results from expert xxx" once they finished this round */
+      solvingResultsLabel: submittedAllOpen
+        ? `Solving results from expert ${eid}`
+        : null,
     };
   });
 
@@ -99,19 +116,29 @@ export async function GET(
       name: "",
       gradingData: null,
       submittedForDiscrepancy: false,
-      submittedChoice: null,
-      currentValue: null,
-      currentToken: null,
+      submittedPaths: [] as string[],
+      solvingResultsLabel: null as string | null,
     });
   }
 
-  const submitted = graders.filter((g) => g.submittedForDiscrepancy);
-  const tokens = submitted
-    .map((g) => g.submittedChoice)
-    .filter((t): t is string => Boolean(t));
-  const allSubmitted = submitted.length >= GRADERS_PER_VIDEO;
-  const allSame =
-    allSubmitted && tokens.length > 0 && tokens.every((t) => t === tokens[0]);
+  const expertsFullySubmitted = graders.filter((g) => g.submittedForDiscrepancy);
+  const perItemProgress = openItems.map((d) => {
+    const submittedCount = d.votes.length;
+    const tokens = d.votes.map((v) => v.choice);
+    const allSame =
+      submittedCount >= GRADERS_PER_VIDEO &&
+      tokens.length > 0 &&
+      tokens.every((t) => t === tokens[0]);
+    return {
+      id: d.id,
+      fieldPath: d.fieldPath,
+      fieldLabel: d.fieldLabel,
+      submittedCount,
+      total: GRADERS_PER_VIDEO,
+      allSame,
+      mySubmitted: d.votes.some((v) => v.expertId === expert.expertId),
+    };
+  });
 
   let parsedData = normalizeAiParsedData(
     parseJsonSafe(item.aiOutput.parsedData, null),
@@ -125,21 +152,27 @@ export async function GET(
 
   return NextResponse.json({
     id: item.id,
+    aiOutputId: item.aiOutputId,
     status: item.status,
-    fieldPath: item.fieldPath,
-    fieldLabel: item.fieldLabel,
-    resolvedValue: item.resolvedValue,
     videoOutputId: item.aiOutput.videoOutputId,
     parsedData,
     mySlot: myAssignment.graderSlot,
     myExpertId: expert.expertId,
     myTaskAssignmentId: myAssignment.id,
+    /** All OPEN discrepancy fields on this video (same form). */
+    items: openItems.map((d) => ({
+      id: d.id,
+      fieldPath: d.fieldPath,
+      fieldLabel: d.fieldLabel,
+      status: d.status,
+    })),
+    openItems: perItemProgress,
+    highlightPaths,
     graders: graders.slice(0, GRADERS_PER_VIDEO),
     progress: {
-      submittedCount: submitted.length,
-      total: GRADERS_PER_VIDEO,
-      allSubmitted,
-      allSame,
+      openFieldCount: openItems.length,
+      expertsSubmittedCount: expertsFullySubmitted.length,
+      totalExperts: GRADERS_PER_VIDEO,
     },
   });
 }
