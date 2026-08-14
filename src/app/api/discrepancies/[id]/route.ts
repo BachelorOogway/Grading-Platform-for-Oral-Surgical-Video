@@ -6,18 +6,10 @@ import {
   categoricalCompareToken,
   getCategoricalRaw,
 } from "@/lib/categoricalFields";
-import { parseAiOutputToParsedData } from "@/lib/aiOutputParser";
-import type { AiParsedData } from "@/lib/aiOutputParser";
-
-function normalizeParsed(raw: unknown, rawText: string): AiParsedData {
-  const parsed = parseAiOutputToParsedData(rawText);
-  const stored = raw as Partial<AiParsedData> | null;
-  // Prefer live re-parse from rawText for structure; stored may be stale.
-  return {
-    ...parsed,
-    ...(stored && typeof stored === "object" ? {} : {}),
-  };
-}
+import {
+  enrichParsedFromGrading,
+  normalizeAiParsedData,
+} from "@/lib/normalizeParsed";
 
 /** Detail for discrepancy regrade UI (same 3-column layout as grader 3). */
 export async function GET(
@@ -99,7 +91,6 @@ export async function GET(
     };
   });
 
-  // Pad missing slots for UI stability
   while (graders.length < GRADERS_PER_VIDEO) {
     graders.push({
       taskAssignmentId: "",
@@ -122,6 +113,16 @@ export async function GET(
   const allSame =
     allSubmitted && tokens.length > 0 && tokens.every((t) => t === tokens[0]);
 
+  let parsedData = normalizeAiParsedData(
+    parseJsonSafe(item.aiOutput.parsedData, null),
+    item.aiOutput.rawText,
+  );
+  for (const g of graders) {
+    if (g.gradingData) {
+      parsedData = enrichParsedFromGrading(parsedData, g.gradingData);
+    }
+  }
+
   return NextResponse.json({
     id: item.id,
     status: item.status,
@@ -129,10 +130,7 @@ export async function GET(
     fieldLabel: item.fieldLabel,
     resolvedValue: item.resolvedValue,
     videoOutputId: item.aiOutput.videoOutputId,
-    parsedData: normalizeParsed(
-      parseJsonSafe(item.aiOutput.parsedData, null),
-      item.aiOutput.rawText,
-    ),
+    parsedData,
     mySlot: myAssignment.graderSlot,
     myExpertId: expert.expertId,
     myTaskAssignmentId: myAssignment.id,

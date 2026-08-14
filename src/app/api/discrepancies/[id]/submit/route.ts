@@ -9,6 +9,19 @@ import {
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
 
+/** Read a path from live form values (correct/incorrect / yes/no / times). */
+function getFormPathRaw(values: unknown, path: string): unknown {
+  const parts = path.split(".");
+  let cur: any = values;
+  for (const p of parts) {
+    if (cur == null) return null;
+    cur = cur[p];
+  }
+  if (cur === "correct" || cur === "yes" || cur === "pass") return true;
+  if (cur === "incorrect" || cur === "no" || cur === "fail") return false;
+  return cur ?? null;
+}
+
 /**
  * Submit this grader's answer for a discrepancy field.
  * Resolves only when all 3 graders have submitted the exact same categorical value.
@@ -21,6 +34,7 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const expertId = String(body?.expertId ?? "").trim();
   const gradingData = body?.gradingData;
+  const explicitFieldValue = body?.fieldValue;
 
   if (!id || !expertId || !gradingData) {
     return NextResponse.json(
@@ -81,28 +95,50 @@ export async function POST(
     return NextResponse.json({ error: "invalid gradingData" }, { status: 400 });
   }
 
-  const newValue = getCategoricalRaw(incoming, item.fieldPath);
+  const existing = assignment.gradingResult
+    ? parseJsonSafe(assignment.gradingResult.gradingData, {})
+    : {};
+
+  let newValue =
+    explicitFieldValue !== undefined && explicitFieldValue !== null
+      ? explicitFieldValue
+      : getCategoricalRaw(incoming, item.fieldPath);
+
+  // Form-shaped payload fallback (e.g. "correct" / "00:00:07")
+  if (categoricalCompareToken(newValue) == null) {
+    newValue = getFormPathRaw(incoming, item.fieldPath);
+  }
+  // Keep previous answer if rebuild dropped the field but expert didn't clear it
+  if (categoricalCompareToken(newValue) == null && existing) {
+    newValue = getCategoricalRaw(existing, item.fieldPath);
+  }
+
   const token = categoricalCompareToken(newValue);
   if (token == null) {
     return NextResponse.json(
-      { error: "please answer the discrepancy field before submitting" },
+      {
+        error:
+          "please answer the discrepancy field before submitting (highlighted in pink)",
+      },
       { status: 400 },
     );
   }
 
-  // Merge into existing grading result (create if missing)
-  const existing = assignment.gradingResult
-    ? parseJsonSafe(assignment.gradingResult.gradingData, {})
-    : {};
   const merged =
     existing && typeof existing === "object"
       ? structuredClone(existing)
-      : {};
+      : structuredClone(incoming);
+
+  // Always write the primary discrepancy answer
+  setCategoricalRaw(merged, item.fieldPath, newValue);
 
   for (const path of relatedDiscrepancyPaths(item.fieldPath)) {
-    const v = getCategoricalRaw(incoming, path);
-    // Always set primary path; related paths only if present in form
-    if (path === item.fieldPath || v != null && v !== "") {
+    if (path === item.fieldPath) continue;
+    let v = getCategoricalRaw(incoming, path);
+    if (categoricalCompareToken(v) == null) {
+      v = getFormPathRaw(incoming, path);
+    }
+    if (v != null && v !== "") {
       setCategoricalRaw(merged, path, v);
     }
   }
@@ -125,7 +161,6 @@ export async function POST(
     });
   }
 
-  // Record this grader's submitted choice for the discrepancy
   await prisma.discrepancyVote.upsert({
     where: {
       discrepancyItemId_expertId: {
@@ -150,7 +185,6 @@ export async function POST(
     allSubmitted && votes.every((v) => v.choice === votes[0].choice);
 
   if (allSame) {
-    // Sync agreed value into all three grading payloads
     const agreedRaw = newValue;
     for (const a of item.aiOutput.assignments) {
       if (!a.gradingResult) continue;
@@ -188,3 +222,4 @@ export async function POST(
     choices: votes.map((v) => ({ expertId: v.expertId, choice: v.choice })),
   });
 }
+

@@ -1,53 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseJsonSafe } from "@/lib/json";
-import { parseAiOutputToParsedData, type AiParsedData } from "@/lib/aiOutputParser";
+import { normalizeAiParsedData } from "@/lib/normalizeParsed";
 import { findCategoricalDisagreements } from "@/lib/categoricalFields";
 import { GRADERS_PER_VIDEO, isTiebreakerSlot } from "@/lib/graders";
-
-function normalizeParsed(raw: unknown, rawText: string): AiParsedData {
-  const parsed = parseAiOutputToParsedData(rawText);
-  const stored = raw as Partial<AiParsedData> | null;
-
-  if (stored?.level1?.structures?.length && stored?.level2?.phases?.length) {
-    return {
-      level1: {
-        procedureType: stored.level1.procedureType ?? parsed.level1.procedureType,
-        structures: stored.level1.structures ?? parsed.level1.structures,
-        totalStructures: stored.level1.totalStructures ?? parsed.level1.totalStructures,
-        instruments: stored.level1.instruments ?? parsed.level1.instruments,
-        totalInstruments: stored.level1.totalInstruments ?? parsed.level1.totalInstruments,
-        spatialPositioning:
-          stored.level1.spatialPositioning ?? parsed.level1.spatialPositioning,
-      },
-      level2: {
-        phases: stored.level2?.phases?.length
-          ? stored.level2.phases
-          : parsed.level2.phases,
-        totalPhases: stored.level2?.totalPhases ?? parsed.level2.totalPhases,
-        missedStepsEvaluation:
-          stored.level2?.missedStepsEvaluation ?? parsed.level2.missedStepsEvaluation,
-        aiMissedPhasesCount:
-          stored.level2?.aiMissedPhasesCount ?? parsed.level2.aiMissedPhasesCount,
-      },
-      level3: {
-        nextActionPrediction:
-          stored.level3?.nextActionPrediction ?? parsed.level3.nextActionPrediction,
-        clinicalRationale:
-          stored.level3?.clinicalRationale ?? parsed.level3.clinicalRationale,
-        surgeryCompleted: stored.level3?.surgeryCompleted ?? parsed.level3.surgeryCompleted,
-      },
-      level4: {
-        dimensions:
-          stored.level4?.dimensions?.length
-            ? stored.level4.dimensions
-            : parsed.level4.dimensions,
-      },
-    };
-  }
-
-  return parsed;
-}
 
 export async function GET(
   req: Request,
@@ -150,7 +106,7 @@ export async function GET(
     aiOutput: {
       videoOutputId: assignment.aiOutput.videoOutputId,
       rawText: assignment.aiOutput.rawText,
-      parsedData: normalizeParsed(
+      parsedData: normalizeAiParsedData(
         parseJsonSafe(assignment.aiOutput.parsedData, null),
         assignment.aiOutput.rawText,
       ),

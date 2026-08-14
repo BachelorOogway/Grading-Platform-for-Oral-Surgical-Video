@@ -9,7 +9,12 @@ import {
   hydrateGradingForm,
   type GradingForm,
 } from "@/lib/gradingForm";
-import { relatedDiscrepancyPaths } from "@/lib/categoricalFields";
+import {
+  getCategoricalRaw,
+  relatedDiscrepancyPaths,
+  setCategoricalRaw,
+} from "@/lib/categoricalFields";
+import { parseJsonSafe } from "@/lib/json";
 import { GradingFormPanel } from "@/components/grading/GradingFormPanel";
 import { PriorAlignedForm } from "@/components/grading/PriorAlignedForm";
 import { useConsensusRowAlign } from "@/components/grading/useConsensusRowAlign";
@@ -62,10 +67,28 @@ const EMPTY_PARSED: AiParsedData = {
   level4: { dimensions: [] },
 };
 
+function readFormPath(values: GradingForm, path: string): unknown {
+  const parts = path.split(".");
+  let cur: any = values;
+  for (const p of parts) {
+    if (cur == null) return null;
+    cur = cur[p];
+  }
+  if (cur === "correct" || cur === "yes" || cur === "pass") return true;
+  if (cur === "incorrect" || cur === "no" || cur === "fail") return false;
+  return cur ?? null;
+}
+
+function asGradingObject(raw: unknown): unknown {
+  if (typeof raw === "string") return parseJsonSafe(raw, null);
+  return raw;
+}
+
 /** Own column: hydrate once per mount; never reset while typing. */
 function OwnDiscrepancyColumn({
   parsed,
   initialGradingData,
+  fieldPath,
   title,
   highlightPaths,
   domPrefix,
@@ -74,18 +97,55 @@ function OwnDiscrepancyColumn({
 }: {
   parsed: AiParsedData;
   initialGradingData: unknown;
+  fieldPath: string;
   title: string;
   highlightPaths: Set<string>;
   domPrefix: string;
   submitting: boolean;
-  onSubmit: (values: GradingForm) => Promise<void>;
+  onSubmit: (payload: {
+    gradingData: unknown;
+    fieldValue: unknown;
+  }) => Promise<void>;
 }) {
+  const saved = asGradingObject(initialGradingData);
   const { register, handleSubmit, watch, setValue, getValues } =
     useForm<GradingForm>({
-      defaultValues: hydrateGradingForm(parsed, initialGradingData),
+      defaultValues: hydrateGradingForm(parsed, saved),
       mode: "onChange",
       shouldUnregister: false,
     });
+
+  async function submitNow() {
+    const values = getValues();
+    let gradingData: any;
+    try {
+      gradingData = buildGradingPayload(values, parsed);
+    } catch (err) {
+      // Fall back to patching only the discrepancy field onto existing data
+      gradingData =
+        saved && typeof saved === "object"
+          ? structuredClone(saved)
+          : {};
+    }
+
+    const fieldValue =
+      getCategoricalRaw(gradingData, fieldPath) ??
+      readFormPath(values, fieldPath) ??
+      (saved ? getCategoricalRaw(saved, fieldPath) : null);
+
+    if (fieldValue != null && fieldValue !== "") {
+      setCategoricalRaw(gradingData, fieldPath, fieldValue);
+    }
+
+    for (const path of relatedDiscrepancyPaths(fieldPath)) {
+      if (path === fieldPath) continue;
+      const v =
+        getCategoricalRaw(gradingData, path) ?? readFormPath(values, path);
+      if (v != null && v !== "") setCategoricalRaw(gradingData, path, v);
+    }
+
+    await onSubmit({ gradingData, fieldValue });
+  }
 
   return (
     <div>
@@ -95,7 +155,7 @@ function OwnDiscrepancyColumn({
         watch={watch}
         setValue={setValue}
         handleSubmit={handleSubmit}
-        onSubmit={(values) => void onSubmit(values)}
+        onSubmit={() => void submitNow()}
         errors={{}}
         isValid
         incompleteMessages={[]}
@@ -114,7 +174,7 @@ function OwnDiscrepancyColumn({
         className="btn btn-primary btn-block"
         style={{ marginTop: 8 }}
         disabled={submitting}
-        onClick={() => void onSubmit(getValues())}
+        onClick={() => void submitNow()}
       >
         {submitting ? "提交中…" : "提交 discrepancy 答案"}
       </button>
@@ -132,7 +192,6 @@ export default function DiscrepancyResolvePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  /** Bump after successful submit so own form remounts from server data. */
   const [ownFormEpoch, setOwnFormEpoch] = useState(0);
 
   const load = useCallback(
@@ -178,7 +237,10 @@ export default function DiscrepancyResolvePage() {
     detail?.progress.submittedCount,
   ]);
 
-  async function onSubmit(values: GradingForm) {
+  async function onSubmit(payload: {
+    gradingData: unknown;
+    fieldValue: unknown;
+  }) {
     if (!detail) return;
     const expertId = localStorage.getItem("expertId");
     if (!expertId) return;
@@ -186,11 +248,14 @@ export default function DiscrepancyResolvePage() {
     setError(null);
     setInfo(null);
     try {
-      const gradingData = buildGradingPayload(values, parsed);
       const res = await fetch(`/api/discrepancies/${detail.id}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expertId, gradingData }),
+        body: JSON.stringify({
+          expertId,
+          gradingData: payload.gradingData,
+          fieldValue: payload.fieldValue,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -322,6 +387,7 @@ export default function DiscrepancyResolvePage() {
                 key={`${detail.id}-${myExpertId}-${ownFormEpoch}`}
                 parsed={parsed}
                 initialGradingData={g.gradingData}
+                fieldPath={detail.fieldPath}
                 title={title}
                 highlightPaths={highlightPaths}
                 domPrefix={`g${g.graderSlot}`}

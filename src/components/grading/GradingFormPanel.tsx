@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type {
   UseFormRegister,
+  UseFormRegisterReturn,
   FieldErrors,
   UseFormHandleSubmit,
   UseFormWatch,
@@ -30,6 +31,12 @@ import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import { MissedItemsField } from "@/components/grading/MissedItemsField";
 
 const FormDomPrefixContext = createContext("");
+
+/** Isolate radio groups across side-by-side forms (HTML name is document-global). */
+function scopedReg(reg: UseFormRegisterReturn, prefix: string) {
+  if (!prefix) return reg;
+  return { ...reg, name: `${prefix}__${reg.name}` };
+}
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/;
 
@@ -130,7 +137,8 @@ function CorrectIncorrect({
   disabled?: boolean;
   onCorrectChange?: (value: "correct" | "incorrect") => void;
 }) {
-  const reg = register(name as any, { required: true });
+  const prefix = useContext(FormDomPrefixContext);
+  const reg = scopedReg(register(name as any, { required: true }), prefix);
   return (
     <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
       <legend className="choice-legend">{legend}</legend>
@@ -177,16 +185,20 @@ function IncorrectReasonRadios({
   disabled?: boolean;
   required: boolean;
 }) {
-  const reg = register(name as any, {
-    validate: (v) => {
-      if (!required) return true;
-      return (
-        v === "hallucination_absent" ||
-        v === "misrecognition_present" ||
-        "Please select a reason"
-      );
-    },
-  });
+  const prefix = useContext(FormDomPrefixContext);
+  const reg = scopedReg(
+    register(name as any, {
+      validate: (v) => {
+        if (!required) return true;
+        return (
+          v === "hallucination_absent" ||
+          v === "misrecognition_present" ||
+          "Please select a reason"
+        );
+      },
+    }),
+    prefix,
+  );
 
   return (
     <div className="grading-reason">
@@ -268,6 +280,7 @@ export function GradingFormPanel({
   const l2 = parsed.level2;
   const [showErrors, setShowErrors] = useState(false);
   const [jumpToId, setJumpToId] = useState<string | null>(null);
+  const scope = (reg: UseFormRegisterReturn) => scopedReg(reg, domPrefix);
 
   const watchedStructures = watch("level1.structures");
   const watchedInstruments = watch("level1.instruments");
@@ -926,7 +939,7 @@ export function GradingFormPanel({
                       ],
                     ] as const
                   ).map(([value, label], idx) => {
-                    const reg =
+                    const reg = scope(
                       idx === 0
                         ? register(`level2.phases.${i}.phaseErrorType` as any, {
                             validate: (v, formValues) => {
@@ -940,7 +953,8 @@ export function GradingFormPanel({
                               );
                             },
                           })
-                        : register(`level2.phases.${i}.phaseErrorType` as any);
+                        : register(`level2.phases.${i}.phaseErrorType` as any),
+                    );
                     return (
                       <label
                         key={value}
@@ -1287,7 +1301,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
               <input
                 type="radio"
                 value="yes"
-                {...register("level3.surgeryCompleted", { required: true })}
+                {...scope(register("level3.surgeryCompleted", { required: true }))}
                 disabled={completed}
               />
               Yes
@@ -1296,7 +1310,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
               <input
                 type="radio"
                 value="no"
-                {...register("level3.surgeryCompleted", { required: true })}
+                {...scope(register("level3.surgeryCompleted", { required: true }))}
                 disabled={completed}
               />
               No
@@ -1403,7 +1417,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
               <input
                 type="radio"
                 value="pass"
-                {...register("level3.safetyCheckPass", { required: true })}
+                {...scope(register("level3.safetyCheckPass", { required: true }))}
                 disabled={completed}
               />
               Pass
@@ -1412,7 +1426,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
               <input
                 type="radio"
                 value="fail"
-                {...register("level3.safetyCheckPass", { required: true })}
+                {...scope(register("level3.safetyCheckPass", { required: true }))}
                 disabled={completed}
               />
               Fail
@@ -1486,10 +1500,12 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
                         <input
                           type="radio"
                           value={n}
-                          {...register(`${base}.expertScore` as any, {
-                            required: true,
-                            valueAsNumber: true,
-                          })}
+                          {...scope(
+                            register(`${base}.expertScore` as any, {
+                              required: true,
+                              valueAsNumber: true,
+                            }),
+                          )}
                           disabled={completed}
                         />
                         {n}
@@ -1509,9 +1525,11 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
                     <input
                       type="radio"
                       value="yes"
-                      {...register(`${base}.aiJustificationHallucination` as any, {
-                        required: true,
-                      })}
+                      {...scope(
+                        register(`${base}.aiJustificationHallucination` as any, {
+                          required: true,
+                        }),
+                      )}
                       disabled={completed}
                     />
                     Yes
@@ -1520,9 +1538,11 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
                     <input
                       type="radio"
                       value="no"
-                      {...register(`${base}.aiJustificationHallucination` as any, {
-                        required: true,
-                      })}
+                      {...scope(
+                        register(`${base}.aiJustificationHallucination` as any, {
+                          required: true,
+                        }),
+                      )}
                       disabled={completed}
                     />
                     No

@@ -281,11 +281,11 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       procedureType:
         values.level1.procedureTypeCorrect === "correct"
           ? parsed.level1.procedureType
-          : values.level1.procedureTypeCorrection.trim(),
+          : String(values.level1.procedureTypeCorrection ?? "").trim(),
       procedureTypeAi: parsed.level1.procedureType,
       procedureTypeCorrection:
         values.level1.procedureTypeCorrect === "incorrect"
-          ? values.level1.procedureTypeCorrection.trim()
+          ? String(values.level1.procedureTypeCorrection ?? "").trim()
           : "",
       structures: parsed.level1.structures.map((s, i) => {
         const j = values.level1.structures[i];
@@ -350,11 +350,11 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       spatialPositioning:
         values.level1.spatialPositioningCorrect === "correct"
           ? parsed.level1.spatialPositioning
-          : values.level1.spatialPositioningCorrection.trim(),
+          : String(values.level1.spatialPositioningCorrection ?? "").trim(),
       spatialPositioningAi: parsed.level1.spatialPositioning,
       spatialPositioningCorrection:
         values.level1.spatialPositioningCorrect === "incorrect"
-          ? values.level1.spatialPositioningCorrection.trim()
+          ? String(values.level1.spatialPositioningCorrection ?? "").trim()
           : "",
     },
     level2: {
@@ -393,12 +393,12 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
         values.level2.missedStepsDetectedCorrect === "correct",
       missedStepsCorrection:
         values.level2.missedStepsDetectedCorrect === "incorrect"
-          ? values.level2.missedStepsCorrection.trim()
+          ? String(values.level2.missedStepsCorrection ?? "").trim()
           : "",
       missedStepsFinal:
         values.level2.missedStepsDetectedCorrect === "correct"
           ? parsed.level2.missedStepsEvaluation
-          : values.level2.missedStepsCorrection.trim(),
+          : String(values.level2.missedStepsCorrection ?? "").trim(),
       metrics: (() => {
         const m = computeLevel2TemporalMetrics(
           parsed.level2.phases.map((p, i) => ({
@@ -433,17 +433,17 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       nextAction:
         values.level3.nextActionAccurate === "correct"
           ? parsed.level3.nextActionPrediction
-          : values.level3.nextActionCorrection.trim(),
+          : String(values.level3.nextActionCorrection ?? "").trim(),
       nextActionAi: parsed.level3.nextActionPrediction,
       nextActionCorrection:
         values.level3.nextActionAccurate === "incorrect"
-          ? values.level3.nextActionCorrection.trim()
+          ? String(values.level3.nextActionCorrection ?? "").trim()
           : "",
       nomenclatureStandardized:
         values.level3.nomenclatureStandardized === "correct",
       nomenclatureCorrection:
         values.level3.nomenclatureStandardized === "incorrect"
-          ? values.level3.nomenclatureCorrection.trim()
+          ? String(values.level3.nomenclatureCorrection ?? "").trim()
           : "",
       safetyCheckPass: values.level3.safetyCheckPass === "pass",
       hallucinationNotes: values.level3.hallucinationNotes,
