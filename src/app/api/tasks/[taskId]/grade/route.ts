@@ -192,13 +192,11 @@ export async function POST(
       include: { gradingResult: true },
       orderBy: { graderSlot: "asc" },
     });
-    const completedGradings = completedAssignments
-      .map((a) =>
-        a.gradingResult
-          ? parseJsonSafe(a.gradingResult.gradingData, null)
-          : null,
-      )
-      .filter((g): g is object => Boolean(g && typeof g === "object"));
+    const completedGradings: unknown[] = completedAssignments.flatMap((a) => {
+      if (!a.gradingResult) return [];
+      const g = parseJsonSafe<unknown>(a.gradingResult.gradingData, null);
+      return g != null && typeof g === "object" ? [g] : [];
+    });
 
     const timingItems = findTimingBoundDiscrepancies(completedGradings);
     for (const t of timingItems) {
