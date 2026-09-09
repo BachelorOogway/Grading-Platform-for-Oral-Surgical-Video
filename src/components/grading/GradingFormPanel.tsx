@@ -75,7 +75,7 @@ function FieldAnchor({
       }}
     >
       {children}
-      {error ? <div className="grading-error-hint">?????????</div> : null}
+      {error ? <div className="grading-error-hint">此项为必填，请填写</div> : null}
     </div>
   );
 }
@@ -389,7 +389,7 @@ export function GradingFormPanel({
     !completed && showErrors && incompleteFields.length > 0 ? (
       <div className="notice notice-danger" style={{ borderWidth: 2, borderColor: "#e11d48" }}>
         <div style={{ fontWeight: 700, marginBottom: 6, color: "#be123c" }}>
-          ?? {incompleteFields.length} ????????????? ?????
+          还有 {incompleteFields.length} 项未填写（已用红色标出）— 点击可跳转
         </div>
         <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 180, overflow: "auto" }}>
           {incompleteFields.map((m) => (
@@ -442,7 +442,7 @@ export function GradingFormPanel({
       ) : null}
       {incompleteBanner}
       <div className="grading-card">
-        <div className="grading-card-title">Level 1 ? Perception</div>
+        <div className="grading-card-title">Level 1 — Perception</div>
 
         <FieldAnchor
           id="l1-procedureType"
@@ -453,7 +453,7 @@ export function GradingFormPanel({
           <DiscSolve path="level1.procedureTypeCorrect" />
           <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>Procedure Type</div>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "var(--ink)" }}>
-            AI: {l1.procedureType || "?"}
+            AI: {l1.procedureType || "—"}
           </div>
           <CorrectIncorrect
             legend="Correct / Incorrect"
@@ -817,8 +817,8 @@ export function GradingFormPanel({
 
       <div className="grading-card">
         <div className="grading-card-title">
-          Level 2 ? Workflow
-          {l2.totalPhases != null ? ` ? ${l2.totalPhases} phases` : ""}
+          Level 2 — Workflow
+          {l2.totalPhases != null ? ` · ${l2.totalPhases} phases` : ""}
         </div>
         {l2.phases.map((p, i) => {
           const phaseWatch = watch(`level2.phases.${i}`);
@@ -862,7 +862,7 @@ export function GradingFormPanel({
               <DiscSolve path={`level2.phases.${i}.segmentationCorrect`} />
               <DiscSolve path={`level2.phases.${i}.contentCorrect`} />
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--accent-deep)" }}>
-                AI: [{p.aiStartTime} ? {p.aiEndTime}]
+                AI: [{p.aiStartTime} → {p.aiEndTime}]
               </div>
               <div style={{ fontSize: 14, margin: "6px 0 10px", color: "var(--ink-soft)", lineHeight: 1.5 }}>
                 {p.description}
@@ -883,7 +883,7 @@ export function GradingFormPanel({
 
               {timingIncorrect ? (
                 <div className="notice notice-info" style={{ marginTop: 8, marginBottom: 0 }}>
-                  Timing is incorrect ? please adjust the <strong>True Start</strong> and{" "}
+                  Timing is incorrect — please adjust the <strong>True Start</strong> and{" "}
                   <strong>True End</strong> below.
                 </div>
               ) : null}
@@ -1025,7 +1025,7 @@ export function GradingFormPanel({
               >
                 <label style={{ display: "grid", gap: 4 }}>
                   True Start (HH:MM:SS)
-                  {timingIncorrect ? " ? please adjust" : " ? defaults to AI time"}
+                  {timingIncorrect ? " — please adjust" : " — defaults to AI time"}
                   <input
                     placeholder="00:00:00"
                     {...register(`level2.phases.${i}.trueStartTime`, {
@@ -1058,7 +1058,7 @@ export function GradingFormPanel({
               >
                 <label style={{ display: "grid", gap: 4 }}>
                   True End (HH:MM:SS)
-                  {timingIncorrect ? " ? please adjust" : " ? defaults to AI time"}
+                  {timingIncorrect ? " — please adjust" : " — defaults to AI time"}
                   <input
                     placeholder="00:00:00"
                     {...register(`level2.phases.${i}.trueEndTime`, {
@@ -1125,11 +1125,11 @@ export function GradingFormPanel({
                 }}
               >
                 {`Formula (per phase):
-tIoU = |A ? B| / |A ? B|
+tIoU = |A ∩ B| / |A ∪ B|
 A = [t_AI_start, t_AI_end],  B = [t_true_start, t_true_end]
-|A ? B| = max(0, min(t_AI_end, t_true_end) ? max(t_AI_start, t_true_start))
-|A ? B| = (t_AI_end ? t_AI_start) + (t_true_end ? t_true_start) ? |A ? B|
-Mean tIoU = (1/N) ?_i tIoU_i`}
+|A ∩ B| = max(0, min(t_AI_end, t_true_end) − max(t_AI_start, t_true_start))
+|A ∪ B| = (t_AI_end − t_AI_start) + (t_true_end − t_true_start) − |A ∩ B|
+Mean tIoU = (1/N) Σ_i tIoU_i`}
               </div>
 
               <div style={{ marginBottom: 8 }}>
@@ -1144,10 +1144,10 @@ Mean tIoU = (1/N) ?_i tIoU_i`}
                   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 }}
               >
-                {`Formula (1:1 phase matching) ? src/lib/temporalMetrics.ts
-For each threshold ? ? {0.50, 0.55, ?, 0.95}:
-  P(?) = (# phases with tIoU ? ?) / N
-mAP@IoU = (1/|T|) ?_? P(?)`}
+                {`Formula (1:1 phase matching) — src/lib/temporalMetrics.ts
+For each threshold τ ∈ {0.50, 0.55, …, 0.95}:
+  P(τ) = (# phases with tIoU ≥ τ) / N
+mAP@IoU = (1/|T|) Σ_τ P(τ)`}
               </div>
 
               <div style={{ fontWeight: 700, marginBottom: 6 }}>
@@ -1190,7 +1190,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
           <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 8 }}>
             AI detected missed phases:{" "}
             <strong style={{ color: "var(--ink)" }}>
-              {l2.aiMissedPhasesCount == null ? "?" : l2.aiMissedPhasesCount}
+              {l2.aiMissedPhasesCount == null ? "—" : l2.aiMissedPhasesCount}
             </strong>
           </div>
           {l2.missedStepsEvaluation ? (
@@ -1263,22 +1263,22 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
       </div>
 
       <div className="grading-card">
-        <div className="grading-card-title">Level 3 ? Clinical Reasoning</div>
+        <div className="grading-card-title">Level 3 — Clinical Reasoning</div>
 
         <div className="grading-sub">
           <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>
-            AI ? Is the surgery completed?:{" "}
+            AI — Is the surgery completed?:{" "}
             <strong style={{ color: "var(--ink)" }}>
-              {parsed.level3.surgeryCompleted || "?"}
+              {parsed.level3.surgeryCompleted || "—"}
             </strong>
           </div>
           <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6, lineHeight: 1.5 }}>
             <strong>Next Action Prediction:</strong>{" "}
-            {parsed.level3.nextActionPrediction || "?"}
+            {parsed.level3.nextActionPrediction || "—"}
           </div>
           <div style={{ fontSize: 13, color: "var(--ink-soft)", lineHeight: 1.5 }}>
             <strong>Clinical Rationale:</strong>{" "}
-            {parsed.level3.clinicalRationale || "?"}
+            {parsed.level3.clinicalRationale || "—"}
           </div>
         </div>
 
@@ -1450,11 +1450,11 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
 
       <div className="grading-card">
         <div className="grading-card-title">
-          Level 4 ? Skills Evaluation & Grounding Test
+          Level 4 — Skills Evaluation & Grounding Test
         </div>
         <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
-          ????????????1?5????????????????? AI
-          ???????????????????? Hallucination = Yes?
+          请根据手术视频独立打分（1–5）。量表锚点见各维度下方；请勿参考 AI
+          分数。若认为该维度相关描述存在幻觉，勾选 Hallucination = Yes。
         </p>
         {LEVEL4_DIMENSIONS.map((d) => {
           const base = `level4.dimensions.${d.key}`;
@@ -1488,7 +1488,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
                 style={{ marginBottom: 8, padding: 6, borderRadius: 6 }}
               >
                 <label style={{ display: "grid", gap: 6 }}>
-                  Expert Given Score (1?5)
+                  Expert Given Score (1–5)
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {[1, 2, 3, 4, 5].map((n) => (
                       <label key={n} style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -1562,7 +1562,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
                 Hallucination rate:{" "}
                 <strong>{formatMetric(hall?.rate ?? null)}</strong>
                 <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-                  (= Yes / total ? {hall?.yesCount ?? 0}/{hall?.totalCount ?? 0})
+                  (= Yes / total · {hall?.yesCount ?? 0}/{hall?.totalCount ?? 0})
                 </span>
               </div>
             </div>
@@ -1580,12 +1580,12 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
         style={{ marginTop: 4 }}
       >
         {completed
-          ? "???"
+          ? "已完成"
           : submitting
-            ? "???..."
+            ? "提交中..."
             : !isValid
-              ? "???????????"
-              : "????"}
+              ? "提交评分（检查未填项）"
+              : "提交评分"}
       </button>
       ) : null}
     </form>

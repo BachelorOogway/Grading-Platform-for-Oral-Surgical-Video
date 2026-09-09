@@ -126,9 +126,7 @@ export default function DashboardPage() {
                 {t.regradeRequestedAt ? (
                   <span className="badge badge-warn">需重评</span>
                 ) : null}
-                {t.graderSlot ? (
-                  <span className="badge">G{t.graderSlot}/3</span>
-                ) : null}
+                <span className="badge">G{t.graderSlot ?? "?"}/3</span>
                 <span className="task-btn-meta">
                   {t.kind === "SHARED" ? "共享区间" : "认领"}
                 </span>

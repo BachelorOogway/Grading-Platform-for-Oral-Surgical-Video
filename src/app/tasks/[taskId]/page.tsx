@@ -51,6 +51,12 @@ type TaskDetail = {
     graderSlot: number;
     priorGraders: PriorGrader[];
     disagreements: CategoricalDisagreement[];
+    priorStatus?: Array<{
+      graderSlot: number;
+      expertId: string | null;
+      name: string | null;
+      status: string | null;
+    }>;
   };
   openDiscrepancies?: Array<{ fieldPath: string; fieldLabel: string }>;
 };
@@ -340,12 +346,10 @@ export default function TaskGradingPage() {
           <div>
             <h1 className="page-title">
               评分 · {task.aiOutput.videoOutputId}
-              {task.graderSlot ? (
-                <span className="muted" style={{ fontSize: 16, fontWeight: 500 }}>
-                  {" "}
-                  · Grader {task.graderSlot}/3
-                </span>
-              ) : null}
+              <span className="muted" style={{ fontSize: 16, fontWeight: 500 }}>
+                {" "}
+                · Grader {task.graderSlot ?? "?"}/3
+              </span>
             </h1>
             <p className="page-lead" style={{ marginBottom: 12 }}>
               {completed
@@ -383,7 +387,19 @@ export default function TaskGradingPage() {
 
         {isTiebreaker && (!g1 || !g2) ? (
           <div className="notice notice-warn">
-            前两位评分者尚未都提交完成。请等待他们完成后再进行对照评分。
+            <strong>三表并排对照暂不可用：</strong>
+            前两位评分者尚未都提交完成，因此没有可比对的答案，discrepancy
+            标记与手动发起按钮也会暂时隐藏。
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              {(task.consensus?.priorStatus ?? []).map((p) => (
+                <li key={p.graderSlot}>
+                  Grader {p.graderSlot}：
+                  {p.expertId
+                    ? `${p.expertId}（${p.status === "COMPLETED" ? "已提交" : "未提交"}）`
+                    : "尚未分配"}
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 

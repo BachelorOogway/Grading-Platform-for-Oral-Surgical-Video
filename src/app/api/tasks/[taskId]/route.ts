@@ -45,20 +45,38 @@ export async function GET(
       gradingData: unknown;
     }>;
     disagreements: ReturnType<typeof findCategoricalDisagreements>;
+    priorStatus: Array<{
+      graderSlot: number;
+      expertId: string | null;
+      name: string | null;
+      status: string | null;
+    }>;
   } = null;
 
   if (isTiebreakerSlot(assignment.graderSlot)) {
-    const priors = await prisma.taskAssignment.findMany({
+    const allPriors = await prisma.taskAssignment.findMany({
       where: {
         aiOutputId: assignment.aiOutputId,
         graderSlot: { in: [1, 2] },
-        status: "COMPLETED",
       },
       include: {
         expert: { select: { expertId: true, name: true } },
         gradingResult: true,
       },
       orderBy: { graderSlot: "asc" },
+    });
+    const priors = allPriors.filter((p) => p.status === "COMPLETED");
+
+    // Slots 1 and 2 always reported, so the tiebreaker can see who is holding
+    // up the side-by-side view instead of just losing it.
+    const priorStatus = [1, 2].map((slot) => {
+      const a = allPriors.find((p) => p.graderSlot === slot);
+      return {
+        graderSlot: slot,
+        expertId: a?.expert.expertId ?? null,
+        name: a?.expert.name ?? null,
+        status: a?.status ?? null,
+      };
     });
 
     const priorGraders = priors
@@ -80,6 +98,7 @@ export async function GET(
       graderSlot: assignment.graderSlot,
       priorGraders,
       disagreements,
+      priorStatus,
     };
   } else {
     consensus = {
@@ -87,6 +106,7 @@ export async function GET(
       graderSlot: assignment.graderSlot,
       priorGraders: [],
       disagreements: [],
+      priorStatus: [],
     };
   }
 
