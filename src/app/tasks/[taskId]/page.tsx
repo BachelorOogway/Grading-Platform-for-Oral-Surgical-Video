@@ -21,6 +21,7 @@ import { PriorAlignedForm } from "@/components/grading/PriorAlignedForm";
 import { disagreePathSet } from "@/components/grading/PriorCategoricalColumn";
 import { useConsensusRowAlign } from "@/components/grading/useConsensusRowAlign";
 import {
+  describeCategoricalPath,
   relatedDiscrepancyPaths,
   type CategoricalDisagreement,
 } from "@/lib/categoricalFields";
@@ -127,7 +128,7 @@ export default function TaskGradingPage() {
       const label =
         disagreements.find((d) => d.path === path)?.label ??
         task.openDiscrepancies?.find((d) => d.fieldPath === path)?.fieldLabel ??
-        path;
+        describeCategoricalPath(path);
       const turningOn = !selectedDisc.has(path);
 
       setSelectedDisc((prev) => {

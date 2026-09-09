@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseJsonSafe, stringifyJson } from "@/lib/json";
 import {
+  describeCategoricalPath,
   findCategoricalDisagreements,
   getCategoricalRaw,
   majorityOfThree,
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
 import { isTiebreakerSlot } from "@/lib/graders";
-import { findTimingBoundDiscrepancies } from "@/lib/timingDiscrepancy";
+import {
+  hallucinationDisagreements,
+  openDiscrepancyItems,
+  syncTimingDiscrepancies,
+} from "@/lib/discrepancyOpen";
 
 export async function POST(
   req: Request,
@@ -86,6 +91,9 @@ export async function POST(
           )
         : null;
 
+      // Level 4 hallucination disagreements open on their own, no majority.
+      const autoHallucination = hallucinationDisagreements(g1, g2);
+
       // Paths already marked (or being marked now) as discrepancy solve — skip majority
       const existingOpen = await prisma.discrepancyItem.findMany({
         where: { aiOutputId: assignment.aiOutputId, status: "OPEN" },
@@ -94,38 +102,29 @@ export async function POST(
       const skipMajority = new Set([
         ...existingOpen.map((d) => d.fieldPath),
         ...discrepancySolvePaths,
+        ...autoHallucination.map((d) => d.path),
       ]);
 
       if (discrepancySolvePaths.length > 0) {
         const disagreements = g1 && g2 ? findCategoricalDisagreements(g1, g2) : [];
         const labelByPath = new Map(disagreements.map((d) => [d.path, d.label]));
-        for (const path of discrepancySolvePaths) {
-          const item = await prisma.discrepancyItem.upsert({
-            where: {
-              aiOutputId_fieldPath: {
-                aiOutputId: assignment.aiOutputId,
-                fieldPath: path,
-              },
-            },
-            update: {
-              status: "OPEN",
-              resolvedValue: null,
-              fieldLabel: labelByPath.get(path) ?? path,
-              createdByExpert: expert.expertId,
-            },
-            create: {
-              aiOutputId: assignment.aiOutputId,
-              fieldPath: path,
-              fieldLabel: labelByPath.get(path) ?? path,
-              status: "OPEN",
-              createdByExpert: expert.expertId,
-            },
-          });
-          await prisma.discrepancyVote.deleteMany({
-            where: { discrepancyItemId: item.id },
-          });
-        }
+        await openDiscrepancyItems(
+          assignment.aiOutputId,
+          discrepancySolvePaths.map((path) => ({
+            path,
+            label:
+              labelByPath.get(path) ?? describeCategoricalPath(path),
+          })),
+          expert.expertId,
+          { resetVotes: true },
+        );
       }
+
+      await openDiscrepancyItems(
+        assignment.aiOutputId,
+        autoHallucination,
+        expert.expertId,
+      );
 
       if (g1 && g2) {
         const disagreements = findCategoricalDisagreements(g1, g2);
@@ -183,65 +182,16 @@ export async function POST(
       },
     });
 
-    // Level 2 timing: if any two experts' start/end differ by >3s, open discrepancy
-    const completedAssignments = await prisma.taskAssignment.findMany({
-      where: {
-        aiOutputId: assignment.aiOutputId,
-        status: "COMPLETED",
-      },
-      include: { gradingResult: true },
-      orderBy: { graderSlot: "asc" },
-    });
-    const completedGradings: unknown[] = completedAssignments.flatMap((a) => {
-      if (!a.gradingResult) return [];
-      const g = parseJsonSafe<unknown>(a.gradingResult.gradingData, null);
-      return g != null && typeof g === "object" ? [g] : [];
-    });
-
-    const timingItems = findTimingBoundDiscrepancies(completedGradings);
-    for (const t of timingItems) {
-      const existing = await prisma.discrepancyItem.findUnique({
-        where: {
-          aiOutputId_fieldPath: {
-            aiOutputId: assignment.aiOutputId,
-            fieldPath: t.path,
-          },
-        },
-        select: { id: true, status: true },
-      });
-      // Already open: do not wipe in-progress submissions
-      if (existing?.status === "OPEN") continue;
-
-      const item = await prisma.discrepancyItem.upsert({
-        where: {
-          aiOutputId_fieldPath: {
-            aiOutputId: assignment.aiOutputId,
-            fieldPath: t.path,
-          },
-        },
-        update: {
-          status: "OPEN",
-          resolvedValue: null,
-          fieldLabel: t.label,
-          createdByExpert: expert.expertId,
-        },
-        create: {
-          aiOutputId: assignment.aiOutputId,
-          fieldPath: t.path,
-          fieldLabel: t.label,
-          status: "OPEN",
-          createdByExpert: expert.expertId,
-        },
-      });
-      await prisma.discrepancyVote.deleteMany({
-        where: { discrepancyItemId: item.id },
-      });
-    }
+    // Level 2 timing: >3s apart on a bound or on the window length
+    const timingPaths = await syncTimingDiscrepancies(
+      assignment.aiOutputId,
+      expert.expertId,
+    );
 
     return NextResponse.json({
       ok: true,
       graderSlot: assignment.graderSlot,
-      timingDiscrepancies: timingItems.map((t) => t.path),
+      timingDiscrepancies: timingPaths,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

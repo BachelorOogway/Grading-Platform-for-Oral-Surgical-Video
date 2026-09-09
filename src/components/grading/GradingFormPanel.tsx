@@ -286,8 +286,13 @@ export function GradingFormPanel({
   }, [showErrors, incompleteFields]);
   const hasError = (id: string) => errorIds.has(id);
   const isHot = (path: string) => Boolean(highlightPaths?.has(path));
-  function DiscSolve({ path }: { path: string }) {
-    if (!showDiscrepancySolve || !onToggleDiscrepancySolve || !isHot(path)) return null;
+  /**
+   * `always` offers the flag even when the first two graders agreed — used for
+   * Level 4 hallucination, where the tiebreaker may still object.
+   */
+  function DiscSolve({ path, always = false }: { path: string; always?: boolean }) {
+    if (!showDiscrepancySolve || !onToggleDiscrepancySolve) return null;
+    if (!always && !isHot(path)) return null;
     if (path.endsWith(".incorrectReason") || path.endsWith(".phaseErrorType")) return null;
     return (
       <DiscrepancySolveRadio
@@ -1453,6 +1458,7 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
         </p>
         {LEVEL4_DIMENSIONS.map((d) => {
           const base = `level4.dimensions.${d.key}`;
+          const hallPath = `${base}.aiJustificationHallucination`;
           const scoreErr = hasError(`l4-${d.key}-score`);
           const hallErr = hasError(`l4-${d.key}-hallucination`);
           return (
@@ -1504,8 +1510,10 @@ mAP@IoU = (1/|T|) ?_? P(?)`}
               <FieldAnchor
                 id={`l4-${d.key}-hallucination`}
                 error={hallErr}
+                highlight={isHot(hallPath)}
                 style={{ padding: 6, borderRadius: 6 }}
               >
+                <DiscSolve path={hallPath} always />
                 <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
                   <legend>Hallucination (Yes / No)</legend>
                   <label style={{ marginRight: 12 }}>

@@ -108,97 +108,9 @@ function asGradingObject(raw: unknown): unknown {
   return raw;
 }
 
-/** Human-readable answer for a solved discrepancy field. */
-function displayAnswer(fieldPath: string, value: unknown, choice: string): string {
-  const raw = value === undefined || value === null ? choice : value;
-  if (raw === true || raw === "true" || raw === "correct") {
-    if (fieldPath.includes("surgeryCompleted")) return "Yes";
-    if (fieldPath.includes("safetyCheckPass")) return "Pass";
-    return "Correct";
-  }
-  if (raw === false || raw === "false" || raw === "incorrect") {
-    if (fieldPath.includes("surgeryCompleted")) return "No";
-    if (fieldPath.includes("safetyCheckPass")) return "Fail";
-    return "Incorrect";
-  }
-  if (raw === "hallucination_absent") return "hallucination (absent)";
-  if (raw === "misrecognition_present") return "misrecognition (present)";
-  if (raw === "yes") return "Yes";
-  if (raw === "no") return "No";
-  if (raw === "pass") return "Pass";
-  if (raw === "fail") return "Fail";
-  return String(raw);
-}
-
-function SolvingResultsPanel({
-  graders,
-  myExpertId,
-}: {
-  graders: GraderCol[];
-  myExpertId: string;
-}) {
-  const solved = graders.filter(
-    (g) => g.expertId && (g.submittedAnswers?.length ?? 0) > 0,
-  );
-  if (solved.length === 0) return null;
-
-  return (
-    <section
-      style={{
-        background: "#fdf2f8",
-        border: "1px solid #f9a8d4",
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 12,
-      }}
-    >
-      <div style={{ fontWeight: 800, color: "#9d174d", marginBottom: 8 }}>
-        Discrepancy solving results so far
-      </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 10,
-        }}
-      >
-        {solved.map((g) => (
-          <div
-            key={g.expertId}
-            style={{
-              background: "#fff",
-              border: "1px solid #f9a8d4",
-              borderRadius: 8,
-              padding: 10,
-            }}
-          >
-            <div
-              style={{
-                fontWeight: 700,
-                fontSize: 13,
-                color: "#9d174d",
-                marginBottom: 6,
-              }}
-            >
-              {g.solvingResultsLabel ??
-                `Solving results from expert ${g.expertId}`}
-              {g.expertId === myExpertId ? " (you)" : ""}
-            </div>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-              {(g.submittedAnswers ?? []).map((a) => (
-                <li key={a.fieldPath} style={{ marginBottom: 3 }}>
-                  {a.fieldLabel}:{" "}
-                  <strong>
-                    {displayAnswer(a.fieldPath, a.value, a.choice)}
-                  </strong>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+/** Whether a grader column already reflects that grader's solve answers. */
+function hasSolved(g: GraderCol | null | undefined): boolean {
+  return Boolean(g?.expertId) && (g?.submittedAnswers?.length ?? 0) > 0;
 }
 
 function OwnDiscrepancyColumn({
@@ -407,6 +319,9 @@ export default function DiscrepancyResolvePage() {
   const cols = [g1, g2, g3];
   const myExpertId = detail.myExpertId;
   const noOpen = fieldPaths.length === 0;
+  const othersSolvedCount = detail.graders.filter(
+    (g) => g.expertId !== myExpertId && hasSolved(g),
+  ).length;
 
   return (
     <main className="app-shell">
@@ -464,9 +379,12 @@ export default function DiscrepancyResolvePage() {
             {detail.progress.expertsSubmittedCount}/
             {detail.progress.totalExperts}
           </div>
+          <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+            {othersSolvedCount > 0
+              ? `其他专家中已有 ${othersSolvedCount} 位提交了 discrepancy solve — 他们那一列显示的是 solve 之后的结果。`
+              : "其他专家尚未提交 discrepancy solve — 他们那两列显示的是 solve 之前的原始评分。"}
+          </div>
         </div>
-
-        <SolvingResultsPanel graders={detail.graders} myExpertId={myExpertId} />
 
         {noOpen ? (
           <div className="notice notice-ok">
@@ -504,10 +422,12 @@ export default function DiscrepancyResolvePage() {
                 );
               }
               const isMine = g.expertId === myExpertId;
-              const hasSolved = (g.submittedAnswers?.length ?? 0) > 0;
+              const stage = hasSolved(g)
+                ? "after discrepancy solve"
+                : "before discrepancy solve";
               const title = `Grader ${g.graderSlot} · ${g.expertId} (${g.name})${
                 isMine ? " · you" : ""
-              }${hasSolved ? " · solving results submitted" : ""}`;
+              } · ${stage}`;
 
               if (!isMine) {
                 return (

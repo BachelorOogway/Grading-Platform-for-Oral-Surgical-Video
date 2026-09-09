@@ -174,7 +174,7 @@ export default function DashboardPage() {
             <h2 className="section-title">Discrepancy solve · 需进一步处理</h2>
             <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
               每条 discrepancy 单独列出；同一视频的多项会在同一个对照表单中一起处理。
-              提交后返回此页。其他专家提交后，其答案会标为 Solving results from expert xxx。
+              提交后返回此页。已提交 solve 的专家，其列会直接显示 solve 之后的结果。
             </p>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
               {discrepancies.map((d) => (

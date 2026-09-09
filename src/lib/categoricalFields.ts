@@ -1,7 +1,9 @@
 /**
  * Categorical (selective) fields used for 3-grader consensus.
- * Free-text corrections and Level 4 are excluded.
+ * Free-text corrections and Level 4 OSATS scores are excluded; the Level 4
+ * hallucination yes/no does take part.
  */
+import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 
 export type CategoricalField = {
   path: string;
@@ -18,14 +20,30 @@ function boolLabel(v: unknown): string | null {
   return v == null || v === "" ? null : String(v);
 }
 
+/** Yes/No fields whose "true" does not mean "correct". */
+export function isYesNoPath(path: string): boolean {
+  return (
+    path.includes("surgeryCompleted") ||
+    path.includes("aiJustificationHallucination")
+  );
+}
+
+/**
+ * Level 4 hallucination is the only Level 4 answer that joins consensus —
+ * OSATS scores are explicitly out of scope for discrepancies.
+ */
+export function isHallucinationPath(path: string): boolean {
+  return path.endsWith(".aiJustificationHallucination");
+}
+
 function displayValue(path: string, raw: unknown): string {
   if (raw === true) {
-    if (path.includes("surgeryCompleted")) return "Yes";
+    if (isYesNoPath(path)) return "Yes";
     if (path.includes("safetyCheckPass")) return "Pass";
     return "Correct";
   }
   if (raw === false) {
-    if (path.includes("surgeryCompleted")) return "No";
+    if (isYesNoPath(path)) return "No";
     if (path.includes("safetyCheckPass")) return "Fail";
     return "Incorrect";
   }
@@ -146,7 +164,57 @@ export function extractCategoricalFields(grading: any): CategoricalField[] {
   );
   push("level3.safetyCheckPass", "L3 Safety check", l3.safetyCheckPass);
 
+  // Level 4: only the hallucination yes/no joins consensus, never the scores.
+  for (const d of level4Dimensions(grading)) {
+    push(
+      `level4.dimensions.${d.key}.aiJustificationHallucination`,
+      `L4 ${d.label} hallucination`,
+      d.raw,
+    );
+  }
+
   return out;
+}
+
+/** Level 4 dimensions, tolerating both the stored array and the form record. */
+function level4Dimensions(
+  grading: any,
+): Array<{ key: string; label: string; raw: unknown }> {
+  const dims = grading?.level4?.dimensions;
+  const labelOf = (key: string, fallback?: unknown) =>
+    LEVEL4_DIMENSIONS.find((d) => d.key === key)?.label ??
+    (typeof fallback === "string" && fallback ? fallback : key);
+
+  if (Array.isArray(dims)) {
+    return dims
+      .filter((d) => d && typeof d === "object" && typeof d.key === "string")
+      .map((d) => ({
+        key: d.key,
+        label: labelOf(d.key, d.label),
+        raw: d.aiJustificationHallucination,
+      }));
+  }
+  if (dims && typeof dims === "object") {
+    return Object.entries(dims as Record<string, any>).map(([key, d]) => ({
+      key,
+      label: labelOf(key, d?.label),
+      raw: d?.aiJustificationHallucination,
+    }));
+  }
+  return [];
+}
+
+/** Human label for a categorical path when no disagreement record exists. */
+export function describeCategoricalPath(path: string): string {
+  const l4 = /^level4\.dimensions\.([^.]+)\.aiJustificationHallucination$/.exec(
+    path,
+  );
+  if (l4) {
+    const label =
+      LEVEL4_DIMENSIONS.find((d) => d.key === l4[1])?.label ?? l4[1];
+    return `L4 ${label} hallucination`;
+  }
+  return path;
 }
 
 function normToken(raw: unknown): string | null {
@@ -208,13 +276,29 @@ export function relatedDiscrepancyPaths(fieldPath: string): string[] {
   return paths;
 }
 
+/**
+ * Walk one path segment. Level 4 dimensions are stored as an array of
+ * `{ key, ... }` in the payload but keyed by dimension name in the form, so a
+ * non-numeric segment on an array is matched against `key`.
+ */
+function stepInto(cur: any, segment: string): any {
+  if (cur == null) return null;
+  if (Array.isArray(cur) && !/^\d+$/.test(segment)) {
+    return (
+      cur.find((el) => el && typeof el === "object" && el.key === segment) ??
+      null
+    );
+  }
+  return cur[segment];
+}
+
 /** Get comparable token for a path from grading payload. */
 export function getCategoricalRaw(grading: any, path: string): unknown {
   const parts = path.split(".");
   let cur: any = grading;
   for (const p of parts) {
     if (cur == null) return null;
-    cur = cur[p];
+    cur = stepInto(cur, p);
   }
   return cur;
 }
@@ -289,7 +373,7 @@ export function majorityOfThree(
 export function getDiscrepancyChoices(
   fieldPath: string,
 ): Array<{ value: string; label: string }> {
-  if (fieldPath.includes("surgeryCompleted")) {
+  if (isYesNoPath(fieldPath)) {
     return [
       { value: "yes", label: "Yes" },
       { value: "no", label: "No" },
@@ -328,11 +412,25 @@ export function setCategoricalRaw(
   for (let i = 0; i < parts.length - 1; i++) {
     const p = parts[i];
     const next = parts[i + 1];
+
+    if (Array.isArray(cur) && !/^\d+$/.test(p)) {
+      let el = cur.find((x) => x && typeof x === "object" && x.key === p);
+      if (!el) {
+        el = { key: p };
+        cur.push(el);
+      }
+      cur = el;
+      continue;
+    }
+
     const wantArray = /^\d+$/.test(next);
     if (cur[p] == null || typeof cur[p] !== "object") {
       cur[p] = wantArray ? [] : {};
     }
     cur = cur[p];
   }
-  cur[parts[parts.length - 1]] = value;
+
+  const last = parts[parts.length - 1];
+  if (Array.isArray(cur) && !/^\d+$/.test(last)) return;
+  cur[last] = value;
 }

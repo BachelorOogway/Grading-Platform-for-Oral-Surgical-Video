@@ -21,9 +21,43 @@ function timeAt(grading: unknown, phaseIndex: number, field: "trueStartTime" | "
   return getCategoricalRaw(grading, `level2.phases.${phaseIndex}.${field}`);
 }
 
+function secondsAt(
+  grading: unknown,
+  phaseIndex: number,
+  field: "trueStartTime" | "trueEndTime",
+): number | null {
+  const raw = timeAt(grading, phaseIndex, field);
+  return typeof raw === "string" ? timeToSeconds(raw) : null;
+}
+
+function spread(values: number[]): number {
+  return Math.max(...values) - Math.min(...values);
+}
+
+/** Paths whose consensus is judged by a seconds tolerance, not exact equality. */
+export function isTimingPath(path: string): boolean {
+  return path.endsWith(".trueStartTime") || path.endsWith(".trueEndTime");
+}
+
+/** True when every submitted time is within `thresholdSec` of the others. */
+export function timesWithinThreshold(
+  values: Array<string | null | undefined>,
+  thresholdSec = TIMING_DISCREPANCY_THRESHOLD_SEC,
+): boolean {
+  const secs: number[] = [];
+  for (const v of values) {
+    const s = typeof v === "string" ? timeToSeconds(v) : null;
+    if (s == null) return false;
+    secs.push(s);
+  }
+  if (secs.length === 0) return false;
+  return spread(secs) <= thresholdSec;
+}
+
 /**
- * If any two graders differ by > thresholdSec on trueStart or trueEnd for a phase,
- * return discrepancy items to open.
+ * A phase is contested when any two graders differ by > thresholdSec on the
+ * true start, on the true end, or on the length of the window they marked
+ * (00:00-00:03 vs 00:00-00:07 is a 4s window gap).
  */
 export function findTimingBoundDiscrepancies(
   gradings: unknown[],
@@ -36,34 +70,38 @@ export function findTimingBoundDiscrepancies(
   const out: TimingDiscrepancy[] = [];
   const seen = new Set<string>();
 
+  const add = (phaseIndex: number, field: "trueStartTime" | "trueEndTime", reason: string) => {
+    const path = `level2.phases.${phaseIndex}.${field}`;
+    if (seen.has(path)) return;
+    seen.add(path);
+    out.push({
+      path,
+      label: `L2 Phase ${phaseIndex + 1} ${
+        field === "trueStartTime" ? "True Start" : "True End"
+      } (${reason})`,
+    });
+  };
+
   for (let i = 0; i < n; i++) {
+    // Window length: only graders who gave both bounds can be compared.
+    const durations: number[] = [];
+    for (const g of usable) {
+      const start = secondsAt(g, i, "trueStartTime");
+      const end = secondsAt(g, i, "trueEndTime");
+      if (start != null && end != null) durations.push(end - start);
+    }
+    const windowGap = durations.length >= 2 && spread(durations) > thresholdSec;
+
     for (const field of ["trueStartTime", "trueEndTime"] as const) {
       const times: number[] = [];
       for (const g of usable) {
-        const raw = timeAt(g, i, field);
-        const sec = typeof raw === "string" ? timeToSeconds(raw) : null;
+        const sec = secondsAt(g, i, field);
         if (sec != null) times.push(sec);
       }
-      if (times.length < 2) continue;
+      const boundGap = times.length >= 2 && spread(times) > thresholdSec;
 
-      let diverge = false;
-      for (let a = 0; a < times.length && !diverge; a++) {
-        for (let b = a + 1; b < times.length; b++) {
-          if (Math.abs(times[a] - times[b]) > thresholdSec) {
-            diverge = true;
-            break;
-          }
-        }
-      }
-      if (!diverge) continue;
-
-      const path = `level2.phases.${i}.${field}`;
-      if (seen.has(path)) continue;
-      seen.add(path);
-      out.push({
-        path,
-        label: `L2 Phase ${i + 1} ${field === "trueStartTime" ? "True Start" : "True End"} (>${thresholdSec}s apart)`,
-      });
+      if (boundGap) add(i, field, `>${thresholdSec}s apart`);
+      else if (windowGap) add(i, field, `window >${thresholdSec}s apart`);
     }
   }
 
