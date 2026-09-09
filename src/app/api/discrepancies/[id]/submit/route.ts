@@ -44,6 +44,61 @@ function resolveFieldValue(
   return { value: newValue, token };
 }
 
+/** Derived aggregates recomputed by the form; keep them in sync with the answers. */
+const DERIVED_METRIC_PATHS = [
+  "level1.wrongStructuresCount",
+  "level1.structureCorrectCount",
+  "level1.structureTotalCount",
+  "level1.structureHallucinationAbsentCount",
+  "level1.structureMisrecognitionPresentCount",
+  "level1.structurePrecision",
+  "level1.structureHallucinationRate",
+  "level1.structureMisrecognitionRate",
+  "level1.wrongInstrumentsCount",
+  "level1.instrumentCorrectCount",
+  "level1.instrumentTotalCount",
+  "level1.instrumentHallucinationAbsentCount",
+  "level1.instrumentMisrecognitionPresentCount",
+  "level1.instrumentPrecision",
+  "level1.instrumentHallucinationRate",
+  "level1.instrumentMisrecognitionRate",
+  "level1.instrumentRecall",
+  "level1.instrumentF1",
+  "level2.metrics",
+];
+
+/**
+ * Copy everything the expert may have edited alongside a discrepancy answer.
+ * For list items (structure / instrument / phase) the whole item is copied so
+ * follow-up inputs like the corrected instrument name survive the merge.
+ */
+function syncDiscrepancyGroup(
+  merged: any,
+  incoming: unknown,
+  fieldPath: string,
+): void {
+  const listItem = /^(.*\.\d+)\.[^.]+$/.exec(fieldPath);
+  if (listItem) {
+    const itemPath = listItem[1];
+    const item = getCategoricalRaw(incoming, itemPath);
+    if (item && typeof item === "object") {
+      setCategoricalRaw(merged, itemPath, structuredClone(item));
+      return;
+    }
+  }
+
+  for (const path of relatedDiscrepancyPaths(fieldPath)) {
+    if (path === fieldPath) continue;
+    let v = getCategoricalRaw(incoming, path);
+    if (v == null || v === "") {
+      v = getFormPathRaw(incoming, path);
+    }
+    if (v != null && v !== "") {
+      setCategoricalRaw(merged, path, v);
+    }
+  }
+}
+
 /**
  * Submit this grader's answers for ALL open discrepancy fields on the same video.
  * Resolves each field independently when all 3 graders submit the same value.
@@ -164,19 +219,17 @@ export async function POST(
     [];
   const submittedFields: Array<{ fieldPath: string; choice: string }> = [];
 
+  for (const path of DERIVED_METRIC_PATHS) {
+    const v = getCategoricalRaw(incoming, path);
+    if (v !== undefined && v !== null) {
+      setCategoricalRaw(merged, path, v);
+    }
+  }
+
   for (const disc of openItems) {
     const resolved = resolvedByPath.get(disc.fieldPath)!;
+    syncDiscrepancyGroup(merged, incoming, disc.fieldPath);
     setCategoricalRaw(merged, disc.fieldPath, resolved.value);
-    for (const path of relatedDiscrepancyPaths(disc.fieldPath)) {
-      if (path === disc.fieldPath) continue;
-      let v = getCategoricalRaw(incoming, path);
-      if (categoricalCompareToken(v) == null) {
-        v = getFormPathRaw(incoming, path);
-      }
-      if (v != null && v !== "") {
-        setCategoricalRaw(merged, path, v);
-      }
-    }
 
     await prisma.discrepancyVote.upsert({
       where: {

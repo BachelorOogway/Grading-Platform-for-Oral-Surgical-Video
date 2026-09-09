@@ -169,10 +169,16 @@ export function categoricalCompareToken(raw: unknown): string | null {
 export function relatedDiscrepancyPaths(fieldPath: string): string[] {
   const paths = [fieldPath];
   if (fieldPath.endsWith(".correct")) {
-    paths.push(fieldPath.replace(/\.correct$/, ".incorrectReason"));
+    paths.push(
+      fieldPath.replace(/\.correct$/, ".incorrectReason"),
+      fieldPath.replace(/\.correct$/, ".expertCorrection"),
+    );
   }
   if (fieldPath.endsWith(".contentCorrect")) {
-    paths.push(fieldPath.replace(/\.contentCorrect$/, ".phaseErrorType"));
+    paths.push(
+      fieldPath.replace(/\.contentCorrect$/, ".phaseErrorType"),
+      fieldPath.replace(/\.contentCorrect$/, ".expertCorrectDescription"),
+    );
   }
   if (fieldPath.endsWith(".nextActionAccurate")) {
     paths.push(fieldPath.replace(/\.nextActionAccurate$/, ".nextActionCorrection"));

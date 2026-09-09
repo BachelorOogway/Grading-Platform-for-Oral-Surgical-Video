@@ -19,6 +19,14 @@ import { GradingFormPanel } from "@/components/grading/GradingFormPanel";
 import { PriorAlignedForm } from "@/components/grading/PriorAlignedForm";
 import { useConsensusRowAlign } from "@/components/grading/useConsensusRowAlign";
 
+type SubmittedAnswer = {
+  fieldPath: string;
+  fieldLabel: string;
+  choice: string;
+  value: unknown;
+  submittedAt: string;
+};
+
 type GraderCol = {
   taskAssignmentId: string;
   graderSlot: number;
@@ -27,6 +35,7 @@ type GraderCol = {
   gradingData: unknown;
   submittedForDiscrepancy: boolean;
   submittedPaths?: string[];
+  submittedAnswers?: SubmittedAnswer[];
   solvingResultsLabel?: string | null;
 };
 
@@ -97,6 +106,99 @@ function readFormPath(values: GradingForm, path: string): unknown {
 function asGradingObject(raw: unknown): unknown {
   if (typeof raw === "string") return parseJsonSafe(raw, null);
   return raw;
+}
+
+/** Human-readable answer for a solved discrepancy field. */
+function displayAnswer(fieldPath: string, value: unknown, choice: string): string {
+  const raw = value === undefined || value === null ? choice : value;
+  if (raw === true || raw === "true" || raw === "correct") {
+    if (fieldPath.includes("surgeryCompleted")) return "Yes";
+    if (fieldPath.includes("safetyCheckPass")) return "Pass";
+    return "Correct";
+  }
+  if (raw === false || raw === "false" || raw === "incorrect") {
+    if (fieldPath.includes("surgeryCompleted")) return "No";
+    if (fieldPath.includes("safetyCheckPass")) return "Fail";
+    return "Incorrect";
+  }
+  if (raw === "hallucination_absent") return "hallucination (absent)";
+  if (raw === "misrecognition_present") return "misrecognition (present)";
+  if (raw === "yes") return "Yes";
+  if (raw === "no") return "No";
+  if (raw === "pass") return "Pass";
+  if (raw === "fail") return "Fail";
+  return String(raw);
+}
+
+function SolvingResultsPanel({
+  graders,
+  myExpertId,
+}: {
+  graders: GraderCol[];
+  myExpertId: string;
+}) {
+  const solved = graders.filter(
+    (g) => g.expertId && (g.submittedAnswers?.length ?? 0) > 0,
+  );
+  if (solved.length === 0) return null;
+
+  return (
+    <section
+      style={{
+        background: "#fdf2f8",
+        border: "1px solid #f9a8d4",
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ fontWeight: 800, color: "#9d174d", marginBottom: 8 }}>
+        Discrepancy solving results so far
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 10,
+        }}
+      >
+        {solved.map((g) => (
+          <div
+            key={g.expertId}
+            style={{
+              background: "#fff",
+              border: "1px solid #f9a8d4",
+              borderRadius: 8,
+              padding: 10,
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 13,
+                color: "#9d174d",
+                marginBottom: 6,
+              }}
+            >
+              {g.solvingResultsLabel ??
+                `Solving results from expert ${g.expertId}`}
+              {g.expertId === myExpertId ? " (you)" : ""}
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+              {(g.submittedAnswers ?? []).map((a) => (
+                <li key={a.fieldPath} style={{ marginBottom: 3 }}>
+                  {a.fieldLabel}:{" "}
+                  <strong>
+                    {displayAnswer(a.fieldPath, a.value, a.choice)}
+                  </strong>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function OwnDiscrepancyColumn({
@@ -364,6 +466,8 @@ export default function DiscrepancyResolvePage() {
           </div>
         </div>
 
+        <SolvingResultsPanel graders={detail.graders} myExpertId={myExpertId} />
+
         {noOpen ? (
           <div className="notice notice-ok">
             No open discrepancies left on this video.
@@ -400,9 +504,10 @@ export default function DiscrepancyResolvePage() {
                 );
               }
               const isMine = g.expertId === myExpertId;
+              const hasSolved = (g.submittedAnswers?.length ?? 0) > 0;
               const title = `Grader ${g.graderSlot} · ${g.expertId} (${g.name})${
                 isMine ? " · you" : ""
-              }`;
+              }${hasSolved ? " · solving results submitted" : ""}`;
 
               if (!isMine) {
                 return (
@@ -413,40 +518,22 @@ export default function DiscrepancyResolvePage() {
                     gradingData={g.gradingData}
                     highlightPaths={highlightPaths}
                     domPrefix={`g${g.graderSlot}`}
-                    solvingResultsLabel={g.solvingResultsLabel}
                   />
                 );
               }
 
               return (
-                <div key={g.graderSlot}>
-                  {g.solvingResultsLabel ? (
-                    <div
-                      style={{
-                        background: "#fce7f3",
-                        border: "1px solid #f9a8d4",
-                        color: "#9d174d",
-                        borderRadius: 8,
-                        padding: "8px 10px",
-                        marginBottom: 8,
-                        fontWeight: 700,
-                        fontSize: 13,
-                      }}
-                    >
-                      {g.solvingResultsLabel} (you can update and resubmit)
-                    </div>
-                  ) : null}
-                  <OwnDiscrepancyColumn
-                    parsed={parsed}
-                    initialGradingData={g.gradingData}
-                    fieldPaths={fieldPaths}
-                    title={title}
-                    highlightPaths={highlightPaths}
-                    domPrefix={`g${g.graderSlot}`}
-                    submitting={submitting}
-                    onSubmit={onSubmit}
-                  />
-                </div>
+                <OwnDiscrepancyColumn
+                  key={g.graderSlot}
+                  parsed={parsed}
+                  initialGradingData={g.gradingData}
+                  fieldPaths={fieldPaths}
+                  title={title}
+                  highlightPaths={highlightPaths}
+                  domPrefix={`g${g.graderSlot}`}
+                  submitting={submitting}
+                  onSubmit={onSubmit}
+                />
               );
             })}
           </div>

@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { parseJsonSafe } from "@/lib/json";
 import { GRADERS_PER_VIDEO } from "@/lib/graders";
 import {
-  categoricalCompareToken,
   getCategoricalRaw,
   relatedDiscrepancyPaths,
 } from "@/lib/categoricalFields";
@@ -81,17 +80,36 @@ export async function GET(
     new Set(openPaths.flatMap((p) => relatedDiscrepancyPaths(p))),
   );
 
+  type SubmittedAnswer = {
+    fieldPath: string;
+    fieldLabel: string;
+    choice: string;
+    /** Raw value from their saved grading, so the UI can show the real answer */
+    value: unknown;
+    submittedAt: string;
+  };
+
   const graders = item.aiOutput.assignments.map((a) => {
     const gradingData = a.gradingResult
       ? parseJsonSafe(a.gradingResult.gradingData, null)
       : null;
     const eid = a.expert.expertId;
-    const submittedPaths = openItems
-      .filter((d) => d.votes.some((v) => v.expertId === eid))
-      .map((d) => d.fieldPath);
+
+    const submittedAnswers: SubmittedAnswer[] = [];
+    for (const d of openItems) {
+      const vote = d.votes.find((v) => v.expertId === eid);
+      if (!vote) continue;
+      submittedAnswers.push({
+        fieldPath: d.fieldPath,
+        fieldLabel: d.fieldLabel,
+        choice: vote.choice,
+        value: gradingData ? getCategoricalRaw(gradingData, d.fieldPath) : null,
+        submittedAt: vote.updatedAt.toISOString(),
+      });
+    }
+
     const submittedAllOpen =
-      openItems.length > 0 &&
-      openItems.every((d) => d.votes.some((v) => v.expertId === eid));
+      openItems.length > 0 && submittedAnswers.length === openItems.length;
 
     return {
       taskAssignmentId: a.id,
@@ -100,11 +118,13 @@ export async function GET(
       name: a.expert.name,
       gradingData,
       submittedForDiscrepancy: submittedAllOpen,
-      submittedPaths,
-      /** Show "Solving results from expert xxx" once they finished this round */
-      solvingResultsLabel: submittedAllOpen
-        ? `Solving results from expert ${eid}`
-        : null,
+      submittedPaths: submittedAnswers.map((s) => s.fieldPath),
+      submittedAnswers,
+      /** Shown above their column once they have solved anything this round */
+      solvingResultsLabel:
+        submittedAnswers.length > 0
+          ? `Solving results from expert ${eid}`
+          : null,
     };
   });
 
@@ -117,6 +137,7 @@ export async function GET(
       gradingData: null,
       submittedForDiscrepancy: false,
       submittedPaths: [] as string[],
+      submittedAnswers: [] as SubmittedAnswer[],
       solvingResultsLabel: null as string | null,
     });
   }
