@@ -48,6 +48,7 @@ type UploadConflict = {
   videoOutputId: string;
   existingVideoOutputId?: string;
   existingUpdatedAt?: string;
+  existingGradingCount?: number;
   pendingText: string;
 };
 
@@ -436,6 +437,7 @@ export default function AdminPage() {
           videoOutputId: data.videoOutputId || normalized,
           existingVideoOutputId: data.existingVideoOutputId,
           existingUpdatedAt: data.existingUpdatedAt,
+          existingGradingCount: data.existingGradingCount ?? 0,
           pendingText: values.aiOutputText,
         });
         setValue("videoOutputId", data.videoOutputId || normalized);
@@ -453,7 +455,7 @@ export default function AdminPage() {
       setUploadConflict(null);
       setUploadInfo(
         data.overridden
-          ? `已覆盖 ${data.videoOutputId}，识别到 Level 2 phases：${data.phasesCount}。`
+          ? `已覆盖 ${data.videoOutputId}，识别到 Level 2 phases：${data.phasesCount}。已作废 ${data.voidedGradings ?? 0} 份打分、清除 ${data.clearedDiscrepancies ?? 0} 条 discrepancy，${data.reopenedAssignments ?? 0} 个任务已退回 PENDING 待重评。`
           : `已保存 ${data.videoOutputId}，识别到 Level 2 phases：${data.phasesCount}。`,
       );
       reset({ videoOutputId: "", aiOutputText: "" });
@@ -789,6 +791,19 @@ export default function AdminPage() {
                     ? `（上次更新：${new Date(uploadConflict.existingUpdatedAt).toLocaleString()}）`
                     : ""}
                   。请选择：
+                </p>
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    color: "#9d174d",
+                  }}
+                >
+                  覆盖会作废该视频已有的{" "}
+                  <strong>{uploadConflict.existingGradingCount ?? 0}</strong>{" "}
+                  份专家打分，并清除全部 discrepancy
+                  记录，相关任务会退回 PENDING 由原专家重新评分。此操作不可撤销。
                 </p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                   <button

@@ -1,9 +1,49 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseAiOutputToParsedData } from "@/lib/aiOutputParser";
 import { stringifyJson } from "@/lib/json";
 import { normalizeVideoOutputId, parseVideoNumber } from "@/lib/videoId";
 import { requireAdmin } from "@/lib/adminAuth";
+
+const OVERRIDE_REGRADE_NOTE =
+  "The AI output for this video was re-uploaded, so the previous grading was voided. Please grade the new output from scratch.";
+
+/**
+ * Replacing an AI output invalidates every answer written against the old
+ * text: grading results, discrepancy items and their votes are removed and the
+ * assignments go back to PENDING for the same graders.
+ */
+async function voidGradingsFor(tx: Prisma.TransactionClient, aiOutputId: string) {
+  const items = await tx.discrepancyItem.findMany({
+    where: { aiOutputId },
+    select: { id: true },
+  });
+  if (items.length > 0) {
+    await tx.discrepancyVote.deleteMany({
+      where: { discrepancyItemId: { in: items.map((i) => i.id) } },
+    });
+    await tx.discrepancyItem.deleteMany({ where: { aiOutputId } });
+  }
+
+  const gradings = await tx.gradingResult.deleteMany({
+    where: { aiOutputId },
+  });
+  const assignments = await tx.taskAssignment.updateMany({
+    where: { aiOutputId },
+    data: {
+      status: "PENDING",
+      regradeNote: OVERRIDE_REGRADE_NOTE,
+      regradeRequestedAt: new Date(),
+    },
+  });
+
+  return {
+    voidedGradings: gradings.count,
+    reopenedAssignments: assignments.count,
+    clearedDiscrepancies: items.length,
+  };
+}
 
 async function findExistingByVideoId(normalizedId: string) {
   const targetNum = parseVideoNumber(normalizedId);
@@ -50,6 +90,9 @@ export async function POST(req: Request) {
 
     const existing = await findExistingByVideoId(videoOutputId);
     if (existing && !override) {
+      const existingGradingCount = await prisma.gradingResult.count({
+        where: { aiOutputId: existing.id },
+      });
       return NextResponse.json(
         {
           conflict: true,
@@ -58,6 +101,7 @@ export async function POST(req: Request) {
           existingVideoOutputId: existing.videoOutputId,
           existingUpdatedAt: existing.updatedAt,
           existingPreview: existing.rawText.slice(0, 200),
+          existingGradingCount,
         },
         { status: 409 },
       );
@@ -67,15 +111,24 @@ export async function POST(req: Request) {
     const parsedDataStr = stringifyJson(parsedData);
 
     let aiOutput;
+    let voided = {
+      voidedGradings: 0,
+      reopenedAssignments: 0,
+      clearedDiscrepancies: 0,
+    };
     if (existing) {
-      aiOutput = await prisma.aiOutput.update({
-        where: { id: existing.id },
-        data: {
-          videoOutputId,
-          rawText: aiOutputText,
-          parsedData: parsedDataStr,
-        },
-        select: { videoOutputId: true },
+      // One transaction: the new text must never coexist with the old answers.
+      [aiOutput, voided] = await prisma.$transaction(async (tx) => {
+        const updated = await tx.aiOutput.update({
+          where: { id: existing.id },
+          data: {
+            videoOutputId,
+            rawText: aiOutputText,
+            parsedData: parsedDataStr,
+          },
+          select: { videoOutputId: true },
+        });
+        return [updated, await voidGradingsFor(tx, existing.id)] as const;
       });
     } else {
       aiOutput = await prisma.aiOutput.create({
@@ -93,6 +146,7 @@ export async function POST(req: Request) {
       overridden: Boolean(existing && override),
       videoOutputId: aiOutput.videoOutputId,
       phasesCount: parsedData.level2.phases.length,
+      ...voided,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
