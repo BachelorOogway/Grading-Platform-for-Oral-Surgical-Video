@@ -8,13 +8,10 @@ import {
   relatedDiscrepancyPaths,
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
+import { isTimingPath } from "@/lib/timingDiscrepancy";
 import {
-  findTimingBoundDiscrepancies,
-  isTimingPath,
-  timesWithinThreshold,
-} from "@/lib/timingDiscrepancy";
-import {
-  loadCompletedGradings,
+  gradersAgreeOnPath,
+  loadAllGradings,
   syncTimingDiscrepancies,
 } from "@/lib/discrepancyOpen";
 
@@ -227,6 +224,8 @@ export async function POST(
   const resolvedFields: Array<{ fieldPath: string; resolvedValue: string }> =
     [];
   const submittedFields: Array<{ fieldPath: string; choice: string }> = [];
+  /** Everyone has answered these and they still do not line up. */
+  const contestedFields: Array<{ fieldPath: string; fieldLabel: string }> = [];
 
   for (const path of DERIVED_METRIC_PATHS) {
     const v = getCategoricalRaw(incoming, path);
@@ -278,27 +277,32 @@ export async function POST(
     });
   }
 
-  // Timing answers agree when they sit within the 3s tolerance, judged against
-  // the saved gradings so the close rule matches the open rule exactly.
-  const stillContestedTiming = new Set(
-    findTimingBoundDiscrepancies(
-      await loadCompletedGradings(seed.aiOutputId),
-    ).map((t) => t.path),
-  );
+  // Resolve as soon as the three graders' saved answers already agree —
+  // do not wait for every expert to submit the discrepancy form.
+  const allGradings = await loadAllGradings(seed.aiOutputId);
 
   for (const disc of openItems) {
     const resolved = resolvedByPath.get(disc.fieldPath)!;
     const votes = await prisma.discrepancyVote.findMany({
       where: { discrepancyItemId: disc.id },
     });
-    if (votes.length < GRADERS_PER_VIDEO) continue;
-
     const timing = isTimingPath(disc.fieldPath);
-    const agreed = timing
-      ? !stillContestedTiming.has(disc.fieldPath) &&
-        timesWithinThreshold(votes.map((v) => v.choice))
-      : votes.every((v) => v.choice === votes[0].choice);
-    if (!agreed) continue;
+    const consensus = gradersAgreeOnPath(allGradings, disc.fieldPath);
+
+    if (!consensus.agreed) {
+      // Only "contested" once everyone has voted and still disagree —
+      // early submitters who have not yet lined up stay open quietly.
+      if (votes.length >= GRADERS_PER_VIDEO) {
+        contestedFields.push({
+          fieldPath: disc.fieldPath,
+          fieldLabel: disc.fieldLabel,
+        });
+      }
+      continue;
+    }
+
+    const resolvedToken = consensus.token ?? resolved.token;
+    const resolvedValue = consensus.value ?? resolved.value;
 
     // Times inside the tolerance stay as each grader recorded them; a single
     // categorical answer is copied to every grader so the video reads the same.
@@ -311,7 +315,7 @@ export async function POST(
         if (!a.gradingResult) continue;
         const gd = parseJsonSafe(a.gradingResult.gradingData, {});
         const next = structuredClone(gd ?? {});
-        setCategoricalRaw(next, disc.fieldPath, resolved.value);
+        setCategoricalRaw(next, disc.fieldPath, resolvedValue);
         await prisma.gradingResult.update({
           where: { id: a.gradingResult.id },
           data: { gradingData: stringifyJson(next) },
@@ -321,11 +325,11 @@ export async function POST(
 
     await prisma.discrepancyItem.update({
       where: { id: disc.id },
-      data: { status: "RESOLVED", resolvedValue: resolved.token },
+      data: { status: "RESOLVED", resolvedValue: resolvedToken },
     });
     resolvedFields.push({
       fieldPath: disc.fieldPath,
-      resolvedValue: resolved.token,
+      resolvedValue: resolvedToken ?? resolved.token,
     });
   }
 
@@ -339,5 +343,6 @@ export async function POST(
     resolvedFieldCount: resolvedFields.length,
     resolvedFields,
     submittedFields,
+    contestedFields,
   });
 }

@@ -46,6 +46,8 @@ type OpenItemProgress = {
   submittedCount: number;
   total: number;
   allSame: boolean;
+  contested?: boolean;
+  isTiming?: boolean;
   mySubmitted: boolean;
 };
 
@@ -65,10 +67,12 @@ type DiscDetail = {
   openItems: OpenItemProgress[];
   highlightPaths: string[];
   graders: GraderCol[];
+  timingThresholdSec?: number;
   progress: {
     openFieldCount: number;
     expertsSubmittedCount: number;
     totalExperts: number;
+    contestedCount?: number;
   };
 };
 
@@ -292,7 +296,29 @@ export default function DiscrepancyResolvePage() {
         setError(data?.error || `Submit failed (${res.status})`);
         return;
       }
-      setInfo("Submission successful");
+      const contested: Array<{ fieldLabel: string }> = Array.isArray(
+        data?.contestedFields,
+      )
+        ? data.contestedFields
+        : [];
+      const resolvedCount = Number(data?.resolvedFieldCount ?? 0);
+      if (contested.length > 0) {
+        // Staying put: another round is needed, so sending them to the
+        // Dashboard would hide the fields they have to renegotiate.
+        setInfo("Submission successful");
+        setError(
+          `仍有 ${contested.length} 项三人未达成一致（${contested
+            .map((c) => c.fieldLabel)
+            .join("、")}），请协商后重新提交。`,
+        );
+        await load();
+        return;
+      }
+      setInfo(
+        resolvedCount > 0
+          ? `Submission successful — ${resolvedCount} field(s) resolved (answers already agreed).`
+          : "Submission successful",
+      );
       setTimeout(() => {
         router.push("/dashboard?discSubmitted=1");
       }, 900);
@@ -334,9 +360,11 @@ export default function DiscrepancyResolvePage() {
             </h1>
             <p className="page-lead" style={{ marginBottom: 12 }}>
               All open discrepancy fields for this video are shown in one form
-              (pink). Edit only your column, then submit once. After you submit,
-              you return to the Dashboard; other experts will see your answers as
-              solving results.
+              (pink). Edit only your column, then submit once. As soon as the
+              three experts&apos; answers already agree (exact match for
+              choices; start/end times within 3s), that field is marked solved —
+              later experts do not need to submit it. After you submit, you
+              return to the Dashboard when nothing contested remains.
             </p>
           </div>
           <button
@@ -350,6 +378,17 @@ export default function DiscrepancyResolvePage() {
 
         {error ? <div className="notice notice-danger">{error}</div> : null}
         {info ? <div className="notice notice-ok">{info}</div> : null}
+
+        {(detail.progress.contestedCount ?? 0) > 0 ? (
+          <div className="notice notice-danger">
+            <strong>
+              有 {detail.progress.contestedCount} 项三位专家均已提交但仍未达成一致。
+            </strong>{" "}
+              选择题必须三人答案完全相同；时间窗口需任意两人相差不超过{" "}
+            {detail.timingThresholdSec ?? 3}{" "}
+            秒。一旦三位专家当前答案已一致，该字段会立即标记为已解决，不必等第三人再提交。这些项会继续以粉色标出，请协商后重新提交。
+          </div>
+        ) : null}
 
         <div
           className="notice"
@@ -371,6 +410,18 @@ export default function DiscrepancyResolvePage() {
                   submitted {d.submittedCount}/{d.total}
                   {d.mySubmitted ? " · you submitted" : ""}
                 </span>
+                {d.contested ? (
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "var(--danger-line, #b91c1c)",
+                    }}
+                  >
+                    · 三人均已提交但仍未一致，需再次协商提交
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>

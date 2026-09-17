@@ -22,6 +22,7 @@ import { disagreePathSet } from "@/components/grading/PriorCategoricalColumn";
 import { useConsensusRowAlign } from "@/components/grading/useConsensusRowAlign";
 import {
   describeCategoricalPath,
+  extractCategoricalFields,
   relatedDiscrepancyPaths,
   type CategoricalDisagreement,
 } from "@/lib/categoricalFields";
@@ -128,12 +129,24 @@ export default function TaskGradingPage() {
     return s;
   }, [disagreements, task?.openDiscrepancies]);
 
+  /** Labels carry the structure / instrument names, so prefer a grader's data. */
+  const priorFieldLabels = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of priorGraders) {
+      for (const f of extractCategoricalFields(g.gradingData)) {
+        m.set(f.path, f.label);
+      }
+    }
+    return m;
+  }, [priorGraders]);
+
   function toggleDiscSolve(path: string) {
     void (async () => {
       if (!task || !expertId) return;
       const label =
         disagreements.find((d) => d.path === path)?.label ??
         task.openDiscrepancies?.find((d) => d.fieldPath === path)?.fieldLabel ??
+        priorFieldLabels.get(path) ??
         describeCategoricalPath(path);
       const turningOn = !selectedDisc.has(path);
 
@@ -355,7 +368,7 @@ export default function TaskGradingPage() {
               {completed
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
-                  ? "三位评分表并排对照。分歧项粉标；在你的表单点红色 discrepancy solve 后，三位评分者 Dashboard 会立即显示该题（含视频 ID）。Level 2 起止时间若任意两人相差超过 3 秒也会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
+                  ? "三位评分表并排对照。前两位答案不同的题会以粉色标出；每一道评分题旁都有 discrepancy solve 按钮，前两位答案相同的题你也可以手动发起。点选后三位评分者的 Dashboard 会立即显示该题（含视频 ID）。Level 2 起止时间若任意两人相差超过 3 秒会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
                   : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
             </p>
           </div>

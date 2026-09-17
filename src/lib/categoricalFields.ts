@@ -204,7 +204,11 @@ function level4Dimensions(
   return [];
 }
 
-/** Human label for a categorical path when no disagreement record exists. */
+/**
+ * Human label for a categorical path when no grading data is around to read a
+ * richer one from. The tiebreaker can flag any question, including ones the
+ * first two graders agreed on, so raw paths must never reach the dashboard.
+ */
 export function describeCategoricalPath(path: string): string {
   const l4 = /^level4\.dimensions\.([^.]+)\.aiJustificationHallucination$/.exec(
     path,
@@ -214,7 +218,39 @@ export function describeCategoricalPath(path: string): string {
       LEVEL4_DIMENSIONS.find((d) => d.key === l4[1])?.label ?? l4[1];
     return `L4 ${label} hallucination`;
   }
-  return path;
+
+  const list = /^level1\.(structures|instruments)\.(\d+)\.(.+)$/.exec(path);
+  if (list) {
+    const kind = list[1] === "structures" ? "Structure" : "Instrument";
+    const n = Number(list[2]) + 1;
+    const leaf =
+      list[3] === "correct" ? "" : ` ${list[3] === "incorrectReason" ? "error type" : list[3]}`;
+    return `L1 ${kind} ${n}${leaf}`;
+  }
+
+  const phase = /^level2\.phases\.(\d+)\.(.+)$/.exec(path);
+  if (phase) {
+    const n = Number(phase[1]) + 1;
+    const leaf: Record<string, string> = {
+      segmentationCorrect: "timing",
+      contentCorrect: "content",
+      phaseErrorType: "error type",
+      trueStartTime: "True Start",
+      trueEndTime: "True End",
+    };
+    return `L2 Phase ${n} ${leaf[phase[2]] ?? phase[2]}`;
+  }
+
+  const simple: Record<string, string> = {
+    "level1.procedureTypeCorrect": "L1 Procedure Type",
+    "level1.spatialPositioningCorrect": "L1 Spatial Positioning",
+    "level2.missedStepsDetectedCorrect": "L2 Missed-steps content",
+    "level3.surgeryCompleted": "L3 Surgery completed",
+    "level3.nextActionAccurate": "L3 Next action accurate",
+    "level3.nomenclatureStandardized": "L3 Nomenclature",
+    "level3.safetyCheckPass": "L3 Safety check",
+  };
+  return simple[path] ?? path;
 }
 
 function normToken(raw: unknown): string | null {

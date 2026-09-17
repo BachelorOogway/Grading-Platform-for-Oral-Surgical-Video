@@ -10,6 +10,8 @@ import {
   enrichParsedFromGrading,
   normalizeAiParsedData,
 } from "@/lib/normalizeParsed";
+import { isTimingPath, TIMING_DISCREPANCY_THRESHOLD_SEC } from "@/lib/timingDiscrepancy";
+import { gradersAgreeOnPath } from "@/lib/discrepancyOpen";
 
 /** Detail for discrepancy regrade UI — all OPEN items on the same video share one form. */
 export async function GET(
@@ -143,20 +145,25 @@ export async function GET(
   }
 
   const expertsFullySubmitted = graders.filter((g) => g.submittedForDiscrepancy);
+  const gradingSnapshot = graders
+    .filter((g) => g.expertId && g.gradingData)
+    .map((g) => g.gradingData);
   const perItemProgress = openItems.map((d) => {
     const submittedCount = d.votes.length;
-    const tokens = d.votes.map((v) => v.choice);
-    const allSame =
-      submittedCount >= GRADERS_PER_VIDEO &&
-      tokens.length > 0 &&
-      tokens.every((t) => t === tokens[0]);
+    const allSubmitted = submittedCount >= GRADERS_PER_VIDEO;
+    // Agreement is judged on the three graders' current answers, not on
+    // whether every expert has clicked submit yet.
+    const agreed = gradersAgreeOnPath(gradingSnapshot, d.fieldPath).agreed;
     return {
       id: d.id,
       fieldPath: d.fieldPath,
       fieldLabel: d.fieldLabel,
       submittedCount,
       total: GRADERS_PER_VIDEO,
-      allSame,
+      allSame: agreed,
+      /** Everyone answered and they still do not line up — needs another round. */
+      contested: allSubmitted && !agreed,
+      isTiming: isTimingPath(d.fieldPath),
       mySubmitted: d.votes.some((v) => v.expertId === expert.expertId),
     };
   });
@@ -190,10 +197,12 @@ export async function GET(
     openItems: perItemProgress,
     highlightPaths,
     graders: graders.slice(0, GRADERS_PER_VIDEO),
+    timingThresholdSec: TIMING_DISCREPANCY_THRESHOLD_SEC,
     progress: {
       openFieldCount: openItems.length,
       expertsSubmittedCount: expertsFullySubmitted.length,
       totalExperts: GRADERS_PER_VIDEO,
+      contestedCount: perItemProgress.filter((d) => d.contested).length,
     },
   });
 }

@@ -287,12 +287,14 @@ export function GradingFormPanel({
   const hasError = (id: string) => errorIds.has(id);
   const isHot = (path: string) => Boolean(highlightPaths?.has(path));
   /**
-   * `always` offers the flag even when the first two graders agreed — used for
-   * Level 4 hallucination, where the tiebreaker may still object.
+   * Offered on every scored question, not only where the first two graders
+   * disagreed — the tiebreaker may object to an answer they both gave.
+   * Follow-up fields are excluded: flagging the parent question already carries
+   * them along (see relatedDiscrepancyPaths), and an expert who answered
+   * "correct" has no value to submit for them.
    */
-  function DiscSolve({ path, always = false }: { path: string; always?: boolean }) {
+  function DiscSolve({ path }: { path: string }) {
     if (!showDiscrepancySolve || !onToggleDiscrepancySolve) return null;
-    if (!always && !isHot(path)) return null;
     if (path.endsWith(".incorrectReason") || path.endsWith(".phaseErrorType")) return null;
     return (
       <DiscrepancySolveRadio
@@ -1513,7 +1515,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                 highlight={isHot(hallPath)}
                 style={{ padding: 6, borderRadius: 6 }}
               >
-                <DiscSolve path={hallPath} always />
+                <DiscSolve path={hallPath} />
                 <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
                   <legend>Hallucination (Yes / No)</legend>
                   <label style={{ marginRight: 12 }}>
