@@ -8,7 +8,9 @@ import {
   majorityOfThree,
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
-import { isTiebreakerSlot } from "@/lib/graders";
+import {
+  isChronologicalTiebreaker,
+} from "@/lib/graders";
 import {
   hallucinationDisagreements,
   openDiscrepancyItems,
@@ -68,28 +70,31 @@ export async function POST(
     }
 
     let payload: any = gradingData;
-    if (isTiebreakerSlot(assignment.graderSlot)) {
+
+    const siblings = await prisma.taskAssignment.findMany({
+      where: { aiOutputId: assignment.aiOutputId },
+      select: { id: true, assignedAt: true },
+    });
+    const isTiebreaker = isChronologicalTiebreaker(assignment.id, siblings);
+
+    // Non-tiebreakers cannot open discrepancy items via grade submit.
+    const allowedDiscPaths = isTiebreaker ? discrepancySolvePaths : [];
+
+    if (isTiebreaker) {
       const priors = await prisma.taskAssignment.findMany({
-        where: {
-          aiOutputId: assignment.aiOutputId,
-          graderSlot: { in: [1, 2] },
-          status: "COMPLETED",
-        },
+        where: { aiOutputId: assignment.aiOutputId },
         include: { gradingResult: true },
-        orderBy: { graderSlot: "asc" },
+        orderBy: [{ assignedAt: "asc" }, { id: "asc" }],
       });
-      const g1 = priors.find((p) => p.graderSlot === 1)?.gradingResult
-        ? parseJsonSafe(
-            priors.find((p) => p.graderSlot === 1)!.gradingResult!.gradingData,
-            null,
-          )
-        : null;
-      const g2 = priors.find((p) => p.graderSlot === 2)?.gradingResult
-        ? parseJsonSafe(
-            priors.find((p) => p.graderSlot === 2)!.gradingResult!.gradingData,
-            null,
-          )
-        : null;
+      const firstTwo = priors.slice(0, 2);
+      const g1 =
+        firstTwo[0]?.status === "COMPLETED" && firstTwo[0].gradingResult
+          ? parseJsonSafe(firstTwo[0].gradingResult.gradingData, null)
+          : null;
+      const g2 =
+        firstTwo[1]?.status === "COMPLETED" && firstTwo[1].gradingResult
+          ? parseJsonSafe(firstTwo[1].gradingResult.gradingData, null)
+          : null;
 
       // Level 4 hallucination disagreements open on their own, no majority.
       const autoHallucination = hallucinationDisagreements(g1, g2);
@@ -101,16 +106,16 @@ export async function POST(
       });
       const skipMajority = new Set([
         ...existingOpen.map((d) => d.fieldPath),
-        ...discrepancySolvePaths,
+        ...allowedDiscPaths,
         ...autoHallucination.map((d) => d.path),
       ]);
 
-      if (discrepancySolvePaths.length > 0) {
+      if (allowedDiscPaths.length > 0) {
         const disagreements = g1 && g2 ? findCategoricalDisagreements(g1, g2) : [];
         const labelByPath = new Map(disagreements.map((d) => [d.path, d.label]));
         await openDiscrepancyItems(
           assignment.aiOutputId,
-          discrepancySolvePaths.map((path) => ({
+          allowedDiscPaths.map((path) => ({
             path,
             label:
               labelByPath.get(path) ?? describeCategoricalPath(path),

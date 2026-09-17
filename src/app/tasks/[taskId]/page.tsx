@@ -302,8 +302,8 @@ export default function TaskGradingPage() {
     setSubmitError("还有未填完的必填项，已跳转到第一项并用红色标出");
   }
 
-  const g1 = priorGraders.find((p) => p.graderSlot === 1);
-  const g2 = priorGraders.find((p) => p.graderSlot === 2);
+  const g1 = priorGraders[0];
+  const g2 = priorGraders[1];
 
   useConsensusRowAlign(
     Boolean(isTiebreaker && g1 && g2 && !loading && task),

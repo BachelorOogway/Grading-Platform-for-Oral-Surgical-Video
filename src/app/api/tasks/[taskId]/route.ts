@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { parseJsonSafe } from "@/lib/json";
 import { normalizeAiParsedData } from "@/lib/normalizeParsed";
 import { findCategoricalDisagreements } from "@/lib/categoricalFields";
-import { GRADERS_PER_VIDEO, isTiebreakerSlot } from "@/lib/graders";
+import {
+  GRADERS_PER_VIDEO,
+  isChronologicalTiebreaker,
+} from "@/lib/graders";
 
 export async function GET(
   req: Request,
@@ -35,6 +38,18 @@ export async function GET(
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  const siblings = await prisma.taskAssignment.findMany({
+    where: { aiOutputId: assignment.aiOutputId },
+    include: {
+      expert: { select: { expertId: true, name: true } },
+      gradingResult: true,
+    },
+    orderBy: [{ assignedAt: "asc" }, { id: "asc" }],
+  });
+
+  // Only the chronologically third claimer gets discrepancy-solve UI.
+  const isTiebreaker = isChronologicalTiebreaker(assignment.id, siblings);
+
   let consensus: null | {
     isTiebreaker: boolean;
     graderSlot: number;
@@ -53,45 +68,39 @@ export async function GET(
     }>;
   } = null;
 
-  if (isTiebreakerSlot(assignment.graderSlot)) {
-    const allPriors = await prisma.taskAssignment.findMany({
-      where: {
-        aiOutputId: assignment.aiOutputId,
-        graderSlot: { in: [1, 2] },
-      },
-      include: {
-        expert: { select: { expertId: true, name: true } },
-        gradingResult: true,
-      },
-      orderBy: { graderSlot: "asc" },
-    });
-    const priors = allPriors.filter((p) => p.status === "COMPLETED");
-
-    // Slots 1 and 2 always reported, so the tiebreaker can see who is holding
-    // up the side-by-side view instead of just losing it.
-    const priorStatus = [1, 2].map((slot) => {
-      const a = allPriors.find((p) => p.graderSlot === slot);
-      return {
-        graderSlot: slot,
-        expertId: a?.expert.expertId ?? null,
-        name: a?.expert.name ?? null,
-        status: a?.status ?? null,
-      };
-    });
+  if (isTiebreaker) {
+    const priors = siblings.slice(0, GRADERS_PER_VIDEO - 1);
+    const priorStatus = priors.map((a, i) => ({
+      graderSlot: i + 1,
+      expertId: a.expert.expertId,
+      name: a.expert.name,
+      status: a.status,
+    }));
+    while (priorStatus.length < GRADERS_PER_VIDEO - 1) {
+      priorStatus.push({
+        graderSlot: priorStatus.length + 1,
+        expertId: null,
+        name: null,
+        status: null,
+      });
+    }
 
     const priorGraders = priors
-      .filter((p) => p.gradingResult)
-      .map((p) => ({
+      .filter((p) => p.status === "COMPLETED" && p.gradingResult)
+      .map((p, i) => ({
         expertId: p.expert.expertId,
         name: p.expert.name,
-        graderSlot: p.graderSlot,
+        // Display order = claim order among the first two, not DB graderSlot.
+        graderSlot: i + 1,
         gradingData: parseJsonSafe(p.gradingResult!.gradingData, null),
       }));
 
-    const g1 = priorGraders.find((p) => p.graderSlot === 1)?.gradingData;
-    const g2 = priorGraders.find((p) => p.graderSlot === 2)?.gradingData;
+    const g1 = priorGraders[0]?.gradingData;
+    const g2 = priorGraders[1]?.gradingData;
     const disagreements =
-      g1 && g2 ? findCategoricalDisagreements(g1, g2) : [];
+      g1 && g2 && priorGraders.length >= 2
+        ? findCategoricalDisagreements(g1, g2)
+        : [];
 
     consensus = {
       isTiebreaker: true,

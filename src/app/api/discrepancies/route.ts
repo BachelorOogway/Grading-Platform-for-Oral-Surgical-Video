@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { GRADERS_PER_VIDEO } from "@/lib/graders";
+import { GRADERS_PER_VIDEO, isChronologicalTiebreaker } from "@/lib/graders";
 
 /** Create or cancel discrepancy-solve items (no voting). */
 export async function POST(req: Request) {
@@ -39,11 +39,22 @@ export async function POST(req: Request) {
 
   const assignment = await prisma.taskAssignment.findFirst({
     where: { expertId: expert.id, aiOutputId: ai.id },
-    select: { graderSlot: true },
+    select: { id: true, graderSlot: true },
   });
-  if (!assignment || assignment.graderSlot !== GRADERS_PER_VIDEO) {
+  if (!assignment) {
     return NextResponse.json(
       { error: "only the 3rd grader can initiate discrepancy solve" },
+      { status: 403 },
+    );
+  }
+
+  const siblings = await prisma.taskAssignment.findMany({
+    where: { aiOutputId: ai.id },
+    select: { id: true, assignedAt: true },
+  });
+  if (!isChronologicalTiebreaker(assignment.id, siblings)) {
+    return NextResponse.json(
+      { error: "only the chronologically 3rd grader can initiate discrepancy solve" },
       { status: 403 },
     );
   }
