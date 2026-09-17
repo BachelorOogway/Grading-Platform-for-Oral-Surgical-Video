@@ -38,6 +38,8 @@ type TaskDetail = {
   taskAssignmentId: string;
   status: "PENDING" | "COMPLETED";
   graderSlot?: number;
+  /** Position in this grading round by who submitted first (1/2/3). */
+  graderRoundSlot?: number;
   expert: { expertId: string; name: string };
   regradeNote?: string | null;
   regradeRequestedAt?: string | null;
@@ -336,7 +338,7 @@ export default function TaskGradingPage() {
       submitting={submitting}
       formTitle={
         isTiebreaker
-          ? `Grader 3 · ${task.expert.expertId} (you)`
+          ? `Grader ${task.graderRoundSlot ?? 3} · ${task.expert.expertId} (you)`
           : undefined
       }
       domPrefix={isTiebreaker ? "g3" : ""}
@@ -361,15 +363,15 @@ export default function TaskGradingPage() {
               评分 · {task.aiOutput.videoOutputId}
               <span className="muted" style={{ fontSize: 16, fontWeight: 500 }}>
                 {" "}
-                · Grader {task.graderSlot ?? "?"}/3
+                · Grader {task.graderRoundSlot ?? task.graderSlot ?? "?"}/3
               </span>
             </h1>
             <p className="page-lead" style={{ marginBottom: 12 }}>
               {completed
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
-                  ? "三位评分表并排对照。前两位答案不同的题会以粉色标出；只有你（按认领时间的第三位评分者）可以点 discrepancy solve。点选后三位评分者的 Dashboard 会立即显示该题。Level 2 起止时间若任意两人相差超过 3 秒会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
-                  : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。"}
+                  ? "三位评分表并排对照。前两位（本轮先提交的两位）答案不同的题会以粉色标出；只有你作为本轮第三位打分者可以点 discrepancy solve。点选后三位评分者的 Dashboard 会立即显示该题。Level 2 起止时间若任意两人相差超过 3 秒会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
+                  : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。重评或重新上传 AI 后，本轮前两位提交者先独立打分；第三人打分时才会出现三表对照与 discrepancy solve。"}
             </p>
           </div>
           <button
@@ -395,24 +397,6 @@ export default function TaskGradingPage() {
         {!canSubmit ? (
           <div className="notice notice-info">
             Level 2 phases 未解析出来。请在 Admin 重新上传该视频 AI 文本。
-          </div>
-        ) : null}
-
-        {isTiebreaker && (!g1 || !g2) ? (
-          <div className="notice notice-warn">
-            <strong>三表并排对照暂不可用：</strong>
-            前两位评分者尚未都提交完成，因此没有可比对的答案，discrepancy
-            标记与手动发起按钮也会暂时隐藏。
-            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-              {(task.consensus?.priorStatus ?? []).map((p) => (
-                <li key={p.graderSlot}>
-                  Grader {p.graderSlot}：
-                  {p.expertId
-                    ? `${p.expertId}（${p.status === "COMPLETED" ? "已提交" : "未提交"}）`
-                    : "尚未分配"}
-                </li>
-              ))}
-            </ul>
           </div>
         ) : null}
 

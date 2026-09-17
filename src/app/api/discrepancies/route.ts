@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { isChronologicalTiebreaker } from "@/lib/graders";
+import { isSubmissionOrderTiebreaker, type GradingOrderPeer } from "@/lib/graders";
 
 /** Create or cancel discrepancy-solve items (no voting). */
 export async function POST(req: Request) {
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   const assignment = await prisma.taskAssignment.findFirst({
     where: { expertId: expert.id, aiOutputId: ai.id },
-    select: { id: true, graderSlot: true },
+    select: { id: true, status: true, graderSlot: true },
   });
   if (!assignment) {
     return NextResponse.json(
@@ -50,11 +50,27 @@ export async function POST(req: Request) {
 
   const siblings = await prisma.taskAssignment.findMany({
     where: { aiOutputId: ai.id },
-    select: { id: true, assignedAt: true },
+    include: { gradingResult: { select: { submittedAt: true, updatedAt: true } } },
   });
-  if (!isChronologicalTiebreaker(assignment.id, siblings)) {
+  const peers: GradingOrderPeer[] = siblings.map((a) => ({
+    id: a.id,
+    status: a.status,
+    completedAt:
+      a.status === "COMPLETED" && a.gradingResult
+        ? a.gradingResult.submittedAt ?? a.gradingResult.updatedAt
+        : null,
+  }));
+  const me = peers.find((p) => p.id === assignment.id) ?? {
+    id: assignment.id,
+    status: assignment.status,
+    completedAt: null,
+  };
+  if (!isSubmissionOrderTiebreaker(me, peers)) {
     return NextResponse.json(
-      { error: "only the chronologically 3rd grader can initiate discrepancy solve" },
+      {
+        error:
+          "only the third expert to grade this round (after two others have submitted) can initiate discrepancy solve",
+      },
       { status: 403 },
     );
   }

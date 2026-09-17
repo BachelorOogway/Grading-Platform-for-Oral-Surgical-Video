@@ -9,7 +9,9 @@ import {
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
 import {
-  isChronologicalTiebreaker,
+  completedInSubmitOrder,
+  isSubmissionOrderTiebreaker,
+  type GradingOrderPeer,
 } from "@/lib/graders";
 import {
   hallucinationDisagreements,
@@ -73,28 +75,40 @@ export async function POST(
 
     const siblings = await prisma.taskAssignment.findMany({
       where: { aiOutputId: assignment.aiOutputId },
-      select: { id: true, assignedAt: true },
+      include: { gradingResult: true },
     });
-    const isTiebreaker = isChronologicalTiebreaker(assignment.id, siblings);
+    const peers: GradingOrderPeer[] = siblings.map((a) => ({
+      id: a.id,
+      status: a.status,
+      completedAt:
+        a.status === "COMPLETED" && a.gradingResult
+          ? a.gradingResult.submittedAt ?? a.gradingResult.updatedAt
+          : null,
+    }));
+    const me: GradingOrderPeer = {
+      id: assignment.id,
+      // Treat this submit as not-yet-completed for the role check: we become
+      // the third grader only when two others are already COMPLETED.
+      status: "PENDING",
+      completedAt: null,
+    };
+    const isTiebreaker = isSubmissionOrderTiebreaker(me, peers);
 
     // Non-tiebreakers cannot open discrepancy items via grade submit.
     const allowedDiscPaths = isTiebreaker ? discrepancySolvePaths : [];
 
     if (isTiebreaker) {
-      const priors = await prisma.taskAssignment.findMany({
-        where: { aiOutputId: assignment.aiOutputId },
-        include: { gradingResult: true },
-        orderBy: [{ assignedAt: "asc" }, { id: "asc" }],
-      });
-      const firstTwo = priors.slice(0, 2);
-      const g1 =
-        firstTwo[0]?.status === "COMPLETED" && firstTwo[0].gradingResult
-          ? parseJsonSafe(firstTwo[0].gradingResult.gradingData, null)
-          : null;
-      const g2 =
-        firstTwo[1]?.status === "COMPLETED" && firstTwo[1].gradingResult
-          ? parseJsonSafe(firstTwo[1].gradingResult.gradingData, null)
-          : null;
+      const priorPeers = completedInSubmitOrder(
+        peers.filter((p) => p.id !== assignment.id),
+      ).slice(0, 2);
+      const g1Row = siblings.find((s) => s.id === priorPeers[0]?.id);
+      const g2Row = siblings.find((s) => s.id === priorPeers[1]?.id);
+      const g1 = g1Row?.gradingResult
+        ? parseJsonSafe(g1Row.gradingResult.gradingData, null)
+        : null;
+      const g2 = g2Row?.gradingResult
+        ? parseJsonSafe(g2Row.gradingResult.gradingData, null)
+        : null;
 
       // Level 4 hallucination disagreements open on their own, no majority.
       const autoHallucination = hallucinationDisagreements(g1, g2);

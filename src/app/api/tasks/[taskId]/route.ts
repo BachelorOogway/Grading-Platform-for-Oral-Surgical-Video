@@ -5,8 +5,26 @@ import { normalizeAiParsedData } from "@/lib/normalizeParsed";
 import { findCategoricalDisagreements } from "@/lib/categoricalFields";
 import {
   GRADERS_PER_VIDEO,
-  isChronologicalTiebreaker,
+  completedInSubmitOrder,
+  gradingRoundSlot,
+  isSubmissionOrderTiebreaker,
+  type GradingOrderPeer,
 } from "@/lib/graders";
+
+function toPeer(a: {
+  id: string;
+  status: string;
+  gradingResult: { submittedAt: Date; updatedAt: Date } | null;
+}): GradingOrderPeer {
+  return {
+    id: a.id,
+    status: a.status,
+    completedAt:
+      a.status === "COMPLETED" && a.gradingResult
+        ? a.gradingResult.submittedAt ?? a.gradingResult.updatedAt
+        : null,
+  };
+}
 
 export async function GET(
   req: Request,
@@ -44,11 +62,13 @@ export async function GET(
       expert: { select: { expertId: true, name: true } },
       gradingResult: true,
     },
-    orderBy: [{ assignedAt: "asc" }, { id: "asc" }],
   });
 
-  // Only the chronologically third claimer gets discrepancy-solve UI.
-  const isTiebreaker = isChronologicalTiebreaker(assignment.id, siblings);
+  const peers = siblings.map(toPeer);
+  const me = toPeer(assignment);
+  // Only after two others have submitted this round.
+  const isTiebreaker = isSubmissionOrderTiebreaker(me, peers);
+  const roundSlot = gradingRoundSlot(assignment.id, peers);
 
   let consensus: null | {
     isTiebreaker: boolean;
@@ -69,17 +89,33 @@ export async function GET(
   } = null;
 
   if (isTiebreaker) {
-    const priors = siblings.slice(0, GRADERS_PER_VIDEO - 1);
+    // Priors = the two earliest completers this round (not claim-order slots).
+    const priorPeers = completedInSubmitOrder(
+      peers.filter((p) => p.id !== assignment.id),
+    ).slice(0, GRADERS_PER_VIDEO - 1);
+
+    const priorGraders = priorPeers.map((peer, i) => {
+      const row = siblings.find((s) => s.id === peer.id)!;
+      return {
+        expertId: row.expert.expertId,
+        name: row.expert.name,
+        graderSlot: i + 1,
+        gradingData: row.gradingResult
+          ? parseJsonSafe(row.gradingResult.gradingData, null)
+          : null,
+      };
+    });
+
     const priorStatus: Array<{
       graderSlot: number;
       expertId: string | null;
       name: string | null;
       status: string | null;
-    }> = priors.map((a, i) => ({
+    }> = priorGraders.map((g, i) => ({
       graderSlot: i + 1,
-      expertId: a.expert.expertId,
-      name: a.expert.name,
-      status: a.status,
+      expertId: g.expertId,
+      name: g.name,
+      status: "COMPLETED",
     }));
     while (priorStatus.length < GRADERS_PER_VIDEO - 1) {
       priorStatus.push({
@@ -90,16 +126,6 @@ export async function GET(
       });
     }
 
-    const priorGraders = priors
-      .filter((p) => p.status === "COMPLETED" && p.gradingResult)
-      .map((p, i) => ({
-        expertId: p.expert.expertId,
-        name: p.expert.name,
-        // Display order = claim order among the first two, not DB graderSlot.
-        graderSlot: i + 1,
-        gradingData: parseJsonSafe(p.gradingResult!.gradingData, null),
-      }));
-
     const g1 = priorGraders[0]?.gradingData;
     const g2 = priorGraders[1]?.gradingData;
     const disagreements =
@@ -109,7 +135,7 @@ export async function GET(
 
     consensus = {
       isTiebreaker: true,
-      graderSlot: assignment.graderSlot,
+      graderSlot: roundSlot,
       priorGraders,
       disagreements,
       priorStatus,
@@ -117,7 +143,7 @@ export async function GET(
   } else {
     consensus = {
       isTiebreaker: false,
-      graderSlot: assignment.graderSlot,
+      graderSlot: roundSlot,
       priorGraders: [],
       disagreements: [],
       priorStatus: [],
@@ -132,7 +158,10 @@ export async function GET(
   return NextResponse.json({
     taskAssignmentId: assignment.id,
     status: assignment.status,
+    /** DB slot (claim order) — prefer graderRoundSlot for UI. */
     graderSlot: assignment.graderSlot,
+    /** Position in the current grading round by who submitted first. */
+    graderRoundSlot: roundSlot,
     gradersPerVideo: GRADERS_PER_VIDEO,
     expert: assignment.expert,
     regradeNote: assignment.regradeNote,

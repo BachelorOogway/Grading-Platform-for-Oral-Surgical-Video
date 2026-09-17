@@ -30,21 +30,55 @@ export async function GET(req: Request) {
 
   const assignments = await prisma.taskAssignment.findMany({
     where: { expertId: expert.id },
-    include: { aiOutput: true },
+    include: {
+      aiOutput: true,
+      gradingResult: { select: { submittedAt: true, updatedAt: true } },
+    },
     orderBy: { updatedAt: "desc" },
   });
 
-  const mapItem = (a: (typeof assignments)[number]) => ({
-    taskAssignmentId: a.id,
-    aiOutputId: a.aiOutputId,
-    videoOutputId: a.aiOutput.videoOutputId,
-    status: a.status,
-    kind: a.kind,
-    graderSlot: a.graderSlot,
-    updatedAt: a.updatedAt,
-    regradeNote: a.regradeNote,
-    regradeRequestedAt: a.regradeRequestedAt,
-  });
+  // Sibling completion times per video — needed for this-round Grader N/3.
+  const aiIds = [...new Set(assignments.map((a) => a.aiOutputId))];
+  const siblingRows =
+    aiIds.length === 0
+      ? []
+      : await prisma.taskAssignment.findMany({
+          where: { aiOutputId: { in: aiIds } },
+          include: {
+            gradingResult: { select: { submittedAt: true, updatedAt: true } },
+          },
+        });
+  const siblingsByAi = new Map<string, typeof siblingRows>();
+  for (const row of siblingRows) {
+    const list = siblingsByAi.get(row.aiOutputId) ?? [];
+    list.push(row);
+    siblingsByAi.set(row.aiOutputId, list);
+  }
+
+  const { gradingRoundSlot } = await import("@/lib/graders");
+
+  const mapItem = (a: (typeof assignments)[number]) => {
+    const sibs = (siblingsByAi.get(a.aiOutputId) ?? []).map((s) => ({
+      id: s.id,
+      status: s.status,
+      completedAt:
+        s.status === "COMPLETED" && s.gradingResult
+          ? s.gradingResult.submittedAt ?? s.gradingResult.updatedAt
+          : null,
+    }));
+    return {
+      taskAssignmentId: a.id,
+      aiOutputId: a.aiOutputId,
+      videoOutputId: a.aiOutput.videoOutputId,
+      status: a.status,
+      kind: a.kind,
+      graderSlot: a.graderSlot,
+      graderRoundSlot: gradingRoundSlot(a.id, sibs),
+      updatedAt: a.updatedAt,
+      regradeNote: a.regradeNote,
+      regradeRequestedAt: a.regradeRequestedAt,
+    };
+  };
 
   const pending = assignments.filter((a) => a.status === "PENDING").map(mapItem);
   const completed = assignments
