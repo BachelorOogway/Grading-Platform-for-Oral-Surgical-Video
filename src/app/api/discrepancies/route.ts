@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { GRADERS_PER_VIDEO, isChronologicalTiebreaker } from "@/lib/graders";
+import { isChronologicalTiebreaker } from "@/lib/graders";
 
 /** Create or cancel discrepancy-solve items (no voting). */
 export async function POST(req: Request) {

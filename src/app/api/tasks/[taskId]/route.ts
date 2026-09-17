@@ -70,7 +70,12 @@ export async function GET(
 
   if (isTiebreaker) {
     const priors = siblings.slice(0, GRADERS_PER_VIDEO - 1);
-    const priorStatus = priors.map((a, i) => ({
+    const priorStatus: Array<{
+      graderSlot: number;
+      expertId: string | null;
+      name: string | null;
+      status: string | null;
+    }> = priors.map((a, i) => ({
       graderSlot: i + 1,
       expertId: a.expert.expertId,
       name: a.expert.name,
