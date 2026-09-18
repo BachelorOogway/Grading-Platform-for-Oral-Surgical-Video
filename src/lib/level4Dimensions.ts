@@ -1,6 +1,10 @@
 /**
  * Level 4 OSATS dimensions — single source of truth for parse, form, metrics, export.
  * Rubrics shown to experts (AI scores are hidden on the grading form).
+ *
+ * AI outputs often vary wording (e.g. "Suture/needle handling", "Quality of final
+ * product"). `aliases` lists accepted labels; matching ignores case and collapses
+ * whitespace / punctuation so minor formatting changes still parse.
  */
 
 export type Level4RubricLevel = {
@@ -11,8 +15,11 @@ export type Level4RubricLevel = {
 export type Level4DimensionDef = {
   key: string;
   label: string;
-  /** Regexes tried in order against the Level 4 section */
-  patterns: RegExp[];
+  /**
+   * Accepted AI label variants (canonical name first). Matching is
+   * case-insensitive and ignores extra spaces / punctuation between words.
+   */
+  aliases: string[];
   rubrics: Level4RubricLevel[];
 };
 
@@ -20,7 +27,7 @@ export const LEVEL4_DIMENSIONS: Level4DimensionDef[] = [
   {
     key: "respectForTissue",
     label: "Respect for Tissue",
-    patterns: [/^Respect for Tissue:\s*(\d)\s*-\s*(.+)$/im],
+    aliases: ["Respect for Tissue", "Respect for tissue"],
     rubrics: [
       {
         score: 1,
@@ -39,10 +46,11 @@ export const LEVEL4_DIMENSIONS: Level4DimensionDef[] = [
   {
     key: "timeAndMotion",
     label: "Time and Motion (Efficiency of Movement)",
-    patterns: [
-      /^Time and Motion\s*\(Efficiency of Movement\):\s*(\d)\s*-\s*(.+)$/im,
-      /^Time and Motion:\s*(\d)\s*-\s*(.+)$/im,
-      /^Time and motion:\s*(\d)\s*-\s*(.+)$/im,
+    aliases: [
+      "Time and Motion (Efficiency of Movement)",
+      "Time and Motion",
+      "Time and motion",
+      "Efficiency of Movement",
     ],
     rubrics: [
       {
@@ -62,7 +70,14 @@ export const LEVEL4_DIMENSIONS: Level4DimensionDef[] = [
   {
     key: "instrumentHandling",
     label: "Instrument Handling",
-    patterns: [/^Instrument Handling:\s*(\d)\s*-\s*(.+)$/im],
+    aliases: [
+      "Instrument Handling",
+      "Suture/needle handling",
+      "Suture / needle handling",
+      "Suture needle handling",
+      "Needle handling",
+      "Suture handling",
+    ],
     rubrics: [
       {
         score: 1,
@@ -81,7 +96,13 @@ export const LEVEL4_DIMENSIONS: Level4DimensionDef[] = [
   {
     key: "knowledgeOfInstruments",
     label: "Knowledge of Instruments",
-    patterns: [/^Knowledge of Instruments:\s*(\d)\s*-\s*(.+)$/im],
+    aliases: [
+      "Knowledge of Instruments",
+      "Knowledge of Instrument",
+      // Alternate AI global-rating wording maps onto this OSATS slot
+      "Overall performance",
+      "Overall Performance",
+    ],
     rubrics: [
       {
         score: 1,
@@ -100,10 +121,12 @@ export const LEVEL4_DIMENSIONS: Level4DimensionDef[] = [
   {
     key: "flowOfOperation",
     label: "Flow of Operation & Forward Planning",
-    patterns: [
-      /^Flow of Operation\s*&\s*Forward Planning:\s*(\d)\s*-\s*(.+)$/im,
-      /^Flow of Operation:\s*(\d)\s*-\s*(.+)$/im,
-      /^Flow of operation:\s*(\d)\s*-\s*(.+)$/im,
+    aliases: [
+      "Flow of Operation & Forward Planning",
+      "Flow of Operation and Forward Planning",
+      "Flow of Operation",
+      "Flow of operation",
+      "Forward Planning",
     ],
     rubrics: [
       {
@@ -123,7 +146,14 @@ export const LEVEL4_DIMENSIONS: Level4DimensionDef[] = [
   {
     key: "knowledgeOfSpecificProcedure",
     label: "Knowledge of Specific Procedure",
-    patterns: [/^Knowledge of Specific Procedure:\s*(\d)\s*-\s*(.+)$/im],
+    aliases: [
+      "Knowledge of Specific Procedure",
+      "Knowledge of the Specific Procedure",
+      // Alternate AI wording maps onto this OSATS slot
+      "Quality of final product",
+      "Quality of Final Product",
+      "Final product quality",
+    ],
     rubrics: [
       {
         score: 1,
@@ -145,4 +175,38 @@ export const LEVEL4_DIMENSION_KEYS = LEVEL4_DIMENSIONS.map((d) => d.key);
 
 export function level4LabelForKey(key: string): string {
   return LEVEL4_DIMENSIONS.find((d) => d.key === key)?.label ?? key;
+}
+
+/** Collapse case / punctuation so "Suture/needle handling" ≡ "suture needle handling". */
+export function normalizeLevel4Label(raw: string): string {
+  return (raw ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Map a free-form AI dimension title to a canonical Level 4 key, if any. */
+export function matchLevel4DimensionKey(rawLabel: string): string | null {
+  const norm = normalizeLevel4Label(rawLabel);
+  if (!norm) return null;
+
+  for (const def of LEVEL4_DIMENSIONS) {
+    for (const alias of def.aliases) {
+      if (normalizeLevel4Label(alias) === norm) return def.key;
+    }
+  }
+
+  // Soft contains: e.g. "Time and Motion (Efficiency of Movement):"
+  for (const def of LEVEL4_DIMENSIONS) {
+    for (const alias of def.aliases) {
+      const a = normalizeLevel4Label(alias);
+      if (a.length >= 8 && (norm.includes(a) || a.includes(norm))) {
+        return def.key;
+      }
+    }
+  }
+
+  return null;
 }

@@ -1,4 +1,7 @@
-import { LEVEL4_DIMENSIONS } from "./level4Dimensions";
+import {
+  LEVEL4_DIMENSIONS,
+  matchLevel4DimensionKey,
+} from "./level4Dimensions";
 
 export type AiPhase = {
   aiStartTime: string;
@@ -112,20 +115,20 @@ function parseLevel1(text: string): AiParsedData["level1"] {
 
   let procedureType = "";
   const procMatch =
-    /Procedure Type:\s*(.*?)\s*\[Human Expert Evaluation:\s*Procedure Type\]/is.exec(
+    /Procedure\s+Type\s*:\s*([\s\S]*?)\s*\[Human\s+Expert\s+Evaluation:\s*Procedure\s+Type\]/i.exec(
       section,
     );
   if (procMatch) {
     procedureType = safeTrim(procMatch[1]);
   } else {
-    const fallback = /Procedure Type:\s*(.+)$/im.exec(section);
+    const fallback = /Procedure\s+Type\s*:\s*(.+)$/im.exec(section);
     procedureType = fallback ? safeTrim(fallback[1]) : "";
   }
 
   const structuresSection = extractSection(
     section,
-    /Anatomical and Pathological Structures/i,
-    /Total number of detected structures|Instrument Inventory/i,
+    /Anatomical\s+and\s+Pathological\s+Structures/i,
+    /Total\s+number\s+of\s+detected\s+structures|Instrument\s+Inventory/i,
   );
   const structureNames = parseItemsBeforeEval(
     structuresSection,
@@ -133,13 +136,17 @@ function parseLevel1(text: string): AiParsedData["level1"] {
     "Anatomical and Pathological Structures",
   );
 
-  const totalStructuresLine = section.match(/Total number of detected structures:\s*(\d+)/i);
-  const totalStructures = totalStructuresLine ? Number(totalStructuresLine[1]) : null;
+  const totalStructuresLine = section.match(
+    /Total\s+number\s+of\s+detected\s+structures\s*:\s*(\d+)/i,
+  );
+  const totalStructures = totalStructuresLine
+    ? Number(totalStructuresLine[1])
+    : null;
 
   const instrumentsSection = extractSection(
     section,
-    /Instrument Inventory/i,
-    /Total number of detected instruments/i,
+    /Instrument\s+Inventory/i,
+    /Total\s+number\s+of\s+detected\s+instruments/i,
   );
   const instrumentNames = parseItemsBeforeEval(
     instrumentsSection,
@@ -147,18 +154,22 @@ function parseLevel1(text: string): AiParsedData["level1"] {
     "Instrument Inventory",
   );
 
-  const totalInstrumentsLine = section.match(/Total number of detected instruments:\s*(\d+)/i);
-  const totalInstruments = totalInstrumentsLine ? Number(totalInstrumentsLine[1]) : null;
+  const totalInstrumentsLine = section.match(
+    /Total\s+number\s+of\s+detected\s+instruments\s*:\s*(\d+)/i,
+  );
+  const totalInstruments = totalInstrumentsLine
+    ? Number(totalInstrumentsLine[1])
+    : null;
 
   let spatialPositioning = "";
   const spatialMatch =
-    /Spatial Positioning:\s*(.*?)\s*\[Human Expert Evaluation:\s*Spatial Positioning\]/is.exec(
+    /Spatial\s+Positioning\s*:\s*([\s\S]*?)\s*\[Human\s+Expert\s+Evaluation:\s*Spatial\s+Positioning\]/i.exec(
       section,
     );
   if (spatialMatch) {
     spatialPositioning = safeTrim(spatialMatch[1]);
   } else {
-    const fallback = /Spatial Positioning:\s*(.+)$/im.exec(section);
+    const fallback = /Spatial\s+Positioning\s*:\s*(.+)$/im.exec(section);
     spatialPositioning = fallback ? safeTrim(fallback[1]) : "";
   }
 
@@ -196,17 +207,21 @@ function parseLevel2(text: string): AiParsedData["level2"] {
     });
   }
 
-  const totalPhasesLine = section.match(/Total number of detected phases:\s*(\d+)/i);
-  const totalPhases = totalPhasesLine
-    ? Number(totalPhasesLine[1])
-    : phases.length;
-
   let missedStepsEvaluation = "";
   const missedMatch =
-    /Missed Steps Evaluation:\s*(.+?)(?=\[Human Expert Evaluation\]|$)/is.exec(section);
+    /Missed\s+Steps\s+Evaluation\s*:\s*([\s\S]*?)(?=\[Human\s+Expert\s+Evaluation\]|$)/i.exec(
+      section,
+    );
   if (missedMatch) {
     missedStepsEvaluation = safeTrim(missedMatch[1]);
   }
+
+  const totalPhasesLine = section.match(
+    /Total\s+number\s+of\s+detected\s+phases\s*:\s*(\d+)/i,
+  );
+  const totalPhases = totalPhasesLine
+    ? Number(totalPhasesLine[1])
+    : phases.length;
 
   const aiMissedPhasesCount = inferAiMissedPhasesCount(missedStepsEvaluation, section);
 
@@ -269,8 +284,8 @@ function parseLevel3(text: string): AiParsedData["level3"] {
   );
 
   const surgeryCompletedMatch =
-    /Is the surgery completed\?\s*\[?\s*(Yes|No)\s*\]?/i.exec(section) ||
-    /Is the surgery completed\?\s*(Yes|No)/i.exec(section);
+    /Is\s+the\s+surgery\s+completed\?\s*\[?\s*(Yes|No)\s*\]?/i.exec(section) ||
+    /Is\s+the\s+surgery\s+completed\?\s*(Yes|No)/i.exec(section);
   const surgeryCompleted = surgeryCompletedMatch
     ? surgeryCompletedMatch[1]
     : null;
@@ -278,17 +293,21 @@ function parseLevel3(text: string): AiParsedData["level3"] {
   let nextActionPrediction = "";
   let clinicalRationale = "";
 
-  const nextMatch = /Next Action Prediction:\s*(.+)/is.exec(section);
+  // Allow newlines / odd spacing between the label and the value.
+  const nextMatch =
+    /Next\s+Action\s+Prediction\s*:\s*([\s\S]*?)(?=Clinical\s+Rationale\s*:|\[Human\s+Expert\s+Evaluation|$)/i.exec(
+      section,
+    );
   if (nextMatch) {
-    const raw = nextMatch[1];
-    const rationaleSplit = /Clinical Rationale:\s*/i.exec(raw);
-    if (rationaleSplit) {
-      nextActionPrediction = safeTrim(raw.slice(0, rationaleSplit.index));
-      clinicalRationale = safeTrim(raw.slice(rationaleSplit.index + rationaleSplit[0].length));
-      clinicalRationale = clinicalRationale.split("[Human Expert Evaluation")[0].trim();
-    } else {
-      nextActionPrediction = safeTrim(raw.split("[Human Expert Evaluation")[0]);
-    }
+    nextActionPrediction = safeTrim(nextMatch[1]);
+  }
+
+  const rationaleMatch =
+    /Clinical\s+Rationale\s*:\s*([\s\S]*?)(?=\[Human\s+Expert\s+Evaluation|$)/i.exec(
+      section,
+    );
+  if (rationaleMatch) {
+    clinicalRationale = safeTrim(rationaleMatch[1]);
   }
 
   return {
@@ -298,28 +317,74 @@ function parseLevel3(text: string): AiParsedData["level3"] {
   };
 }
 
+/**
+ * Parse Level 4 score blocks. Tolerant of:
+ * - case / punctuation / extra spaces in dimension titles
+ * - newlines inside justifications
+ * - alternate titles (see LEVEL4_DIMENSIONS.aliases)
+ *
+ * Expected shape per dimension:
+ *   <Label>: <score> - <justification...>
+ *   [Human Expert Evaluation ...]   (optional)
+ */
 function parseLevel4(text: string): AiParsedData["level4"] {
   const sectionMatch = text.match(/Level\s*4\s*Analysis[\s\S]*$/i);
   const section = sectionMatch?.[0] ?? "";
 
+  // Anchor each "Label: score -" on a single line (labels never span newlines).
+  const anchorRe =
+    /(^|[\r\n])[ \t]*([A-Za-z][A-Za-z0-9/()'&., \t-]{1,100}?)[ \t]*:[ \t]*(\d)[ \t]*[-–—][ \t]*/g;
+
+  type Anchor = {
+    label: string;
+    score: number;
+    bodyStart: number;
+    matchStart: number;
+  };
+  const anchors: Anchor[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = anchorRe.exec(section))) {
+    const label = safeTrim(m[2]);
+    if (/^level\s*4/i.test(label)) continue;
+    if (/human\s+expert/i.test(label)) continue;
+    if (/expert\s+given\s+score/i.test(label)) continue;
+    const score = Number(m[3]);
+    if (!Number.isFinite(score)) continue;
+    anchors.push({
+      label,
+      score,
+      bodyStart: m.index + m[0].length,
+      matchStart: m.index,
+    });
+  }
+
+  const found = new Map<string, AiLevel4Dimension>();
+  for (let i = 0; i < anchors.length; i++) {
+    const a = anchors[i];
+    const key = matchLevel4DimensionKey(a.label);
+    if (!key || found.has(key)) continue;
+    const def = LEVEL4_DIMENSIONS.find((d) => d.key === key);
+    if (!def) continue;
+
+    const bodyEnd =
+      i + 1 < anchors.length ? anchors[i + 1].matchStart : section.length;
+    let justification = section.slice(a.bodyStart, bodyEnd);
+    justification = justification.split(/\[Human\s+Expert\s+Evaluation/i)[0];
+    justification = safeTrim(justification);
+    if (!justification) continue;
+
+    found.set(key, {
+      key: def.key,
+      label: def.label,
+      aiScore: a.score,
+      justification,
+    });
+  }
+
   const dimensions: AiLevel4Dimension[] = [];
   for (const def of LEVEL4_DIMENSIONS) {
-    let matched: RegExpExecArray | null = null;
-    for (const pattern of def.patterns) {
-      matched = pattern.exec(section);
-      if (matched) break;
-    }
-    if (matched) {
-      const justification = safeTrim(matched[2]).split(
-        /\[Human Expert Evaluation/i,
-      )[0];
-      dimensions.push({
-        key: def.key,
-        label: def.label,
-        aiScore: Number(matched[1]),
-        justification: safeTrim(justification),
-      });
-    }
+    const row = found.get(def.key);
+    if (row) dimensions.push(row);
   }
 
   return { dimensions };
