@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { parseJsonSafe, stringifyJson } from "@/lib/json";
 import { GRADERS_PER_VIDEO } from "@/lib/graders";
 import {
-  categoricalCompareToken,
+  compareTokenForPath,
   getCategoricalRaw,
+  mergeMissedInstrumentNames,
+  missedInstrumentCountOf,
   relatedDiscrepancyPaths,
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
@@ -39,13 +41,13 @@ function resolveFieldValue(
       ? explicit
       : getCategoricalRaw(incoming, fieldPath);
 
-  if (categoricalCompareToken(newValue) == null) {
+  if (compareTokenForPath(fieldPath, newValue) == null) {
     newValue = getFormPathRaw(incoming, fieldPath);
   }
-  if (categoricalCompareToken(newValue) == null && existing) {
+  if (compareTokenForPath(fieldPath, newValue) == null && existing) {
     newValue = getCategoricalRaw(existing, fieldPath);
   }
-  const token = categoricalCompareToken(newValue);
+  const token = compareTokenForPath(fieldPath, newValue);
   if (token == null) return null;
   return { value: newValue, token };
 }
@@ -70,7 +72,12 @@ const DERIVED_METRIC_PATHS = [
   "level1.instrumentMisrecognitionRate",
   "level1.instrumentRecall",
   "level1.instrumentF1",
+  "level1.missedInstrumentsCount",
+  "level1.missedInstruments",
   "level2.metrics",
+  "level4.hallucinationRate",
+  "level4.hallucinationYesCount",
+  "level4.hallucinationTotalCount",
 ];
 
 /**
@@ -305,7 +312,7 @@ export async function POST(
     const resolvedValue = consensus.value ?? resolved.value;
 
     // Times inside the tolerance stay as each grader recorded them; a single
-    // categorical answer is copied to every grader so the video reads the same.
+    // categorical answer (plus related follow-ups) is copied to every grader.
     if (!timing) {
       const assignments = await prisma.taskAssignment.findMany({
         where: { aiOutputId: seed.aiOutputId },
@@ -316,6 +323,14 @@ export async function POST(
         const gd = parseJsonSafe(a.gradingResult.gradingData, {});
         const next = structuredClone(gd ?? {});
         setCategoricalRaw(next, disc.fieldPath, resolvedValue);
+        // Related fields (corrections, missed-instrument names, …) from the
+        // submitter so GT/metrics stay in sync after resolve.
+        for (const rel of relatedDiscrepancyPaths(disc.fieldPath)) {
+          if (rel === disc.fieldPath) continue;
+          let v = getCategoricalRaw(incoming, rel);
+          if (v == null || v === "") v = getFormPathRaw(incoming, rel);
+          if (v != null && v !== "") setCategoricalRaw(next, rel, v);
+        }
         await prisma.gradingResult.update({
           where: { id: a.gradingResult.id },
           data: { gradingData: stringifyJson(next) },
@@ -331,6 +346,37 @@ export async function POST(
       fieldPath: disc.fieldPath,
       resolvedValue: resolvedToken ?? resolved.token,
     });
+  }
+
+  // After resolving missed-instrument count, union free-text names if counts match.
+  const refreshed = await loadAllGradings(seed.aiOutputId);
+  if (refreshed.length >= GRADERS_PER_VIDEO) {
+    const countsEqual = refreshed.every(
+      (g) =>
+        missedInstrumentCountOf(g) === missedInstrumentCountOf(refreshed[0]),
+    );
+    if (countsEqual) {
+      const mergedNames = mergeMissedInstrumentNames(refreshed);
+      const assignments = await prisma.taskAssignment.findMany({
+        where: { aiOutputId: seed.aiOutputId },
+        include: { gradingResult: true },
+      });
+      for (const a of assignments) {
+        if (!a.gradingResult) continue;
+        const gd = parseJsonSafe(a.gradingResult.gradingData, {});
+        const next = structuredClone(gd ?? {});
+        setCategoricalRaw(next, "level1.missedInstruments", mergedNames);
+        setCategoricalRaw(
+          next,
+          "level1.missedInstrumentsCount",
+          mergedNames.length,
+        );
+        await prisma.gradingResult.update({
+          where: { id: a.gradingResult.id },
+          data: { gradingData: stringifyJson(next) },
+        });
+      }
+    }
   }
 
   // A revised time can push another phase past the tolerance.

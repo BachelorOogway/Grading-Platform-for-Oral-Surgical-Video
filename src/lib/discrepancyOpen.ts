@@ -5,10 +5,10 @@
 import { prisma } from "@/lib/prisma";
 import { parseJsonSafe } from "@/lib/json";
 import {
-  categoricalCompareToken,
+  compareTokenForPath,
   findCategoricalDisagreements,
   getCategoricalRaw,
-  isHallucinationPath,
+  isAutoDiscrepancyPath,
 } from "@/lib/categoricalFields";
 import {
   findTimingBoundDiscrepancies,
@@ -101,7 +101,7 @@ export function gradersAgreeOnPath(
   }
 
   const raws = gradings.map((g) => getCategoricalRaw(g, fieldPath));
-  const tokens = raws.map((v) => categoricalCompareToken(v));
+  const tokens = raws.map((v) => compareTokenForPath(fieldPath, v));
   if (tokens.some((t) => t == null)) {
     return { agreed: false, token: null, value: null };
   }
@@ -165,15 +165,33 @@ export async function syncTimingDiscrepancies(
 }
 
 /**
- * Level 4 hallucination: any disagreement between the first two graders opens
- * a discrepancy on its own — OSATS scores never do.
+ * Level 4 hallucination + missed-instrument count: any pairwise disagreement
+ * among the given gradings opens a discrepancy (no 2:1 majority).
  */
+export function autoOpenDisagreements(
+  ...gradings: unknown[]
+): OpenableDiscrepancy[] {
+  const usable = gradings.filter((g) => g && typeof g === "object");
+  const out: OpenableDiscrepancy[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < usable.length; i++) {
+    for (let j = i + 1; j < usable.length; j++) {
+      for (const d of findCategoricalDisagreements(usable[i], usable[j])) {
+        if (!isAutoDiscrepancyPath(d.path) || seen.has(d.path)) continue;
+        seen.add(d.path);
+        out.push({ path: d.path, label: d.label });
+      }
+    }
+  }
+  return out;
+}
+
+/** @deprecated use autoOpenDisagreements */
 export function hallucinationDisagreements(
   grading1: unknown,
   grading2: unknown,
 ): OpenableDiscrepancy[] {
-  if (!grading1 || !grading2) return [];
-  return findCategoricalDisagreements(grading1, grading2)
-    .filter((d) => isHallucinationPath(d.path))
-    .map((d) => ({ path: d.path, label: d.label }));
+  return autoOpenDisagreements(grading1, grading2).filter((d) =>
+    d.path.endsWith(".aiJustificationHallucination"),
+  );
 }

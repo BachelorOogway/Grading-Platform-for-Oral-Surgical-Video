@@ -36,6 +36,52 @@ export function isHallucinationPath(path: string): boolean {
   return path.endsWith(".aiJustificationHallucination");
 }
 
+/** Missed-instrument *count* joins consensus; the free-text list is related. */
+export function isMissedInstrumentCountPath(path: string): boolean {
+  return path === "level1.missedInstrumentsCount";
+}
+
+/** Paths that auto-open a discrepancy (no 2:1 majority) when the first two disagree. */
+export function isAutoDiscrepancyPath(path: string): boolean {
+  return isHallucinationPath(path) || isMissedInstrumentCountPath(path);
+}
+
+/** Non-empty missed-instrument names from a grading payload. */
+export function missedInstrumentNames(grading: any): string[] {
+  const list = grading?.level1?.missedInstruments;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((x: unknown) => String(x ?? "").trim())
+    .filter(Boolean);
+}
+
+export function missedInstrumentCountOf(grading: any): number {
+  const fromList = missedInstrumentNames(grading).length;
+  if (fromList > 0 || Array.isArray(grading?.level1?.missedInstruments)) {
+    return fromList;
+  }
+  const n = Number(grading?.level1?.missedInstrumentsCount);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * When all graders report the same missed count, union their free-text names
+ * (case-insensitive dedupe, first spelling wins).
+ */
+export function mergeMissedInstrumentNames(gradings: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const g of gradings) {
+    for (const name of missedInstrumentNames(g)) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
 function displayValue(path: string, raw: unknown): string {
   if (raw === true) {
     if (isYesNoPath(path)) return "Yes";
@@ -164,12 +210,24 @@ export function extractCategoricalFields(grading: any): CategoricalField[] {
   );
   push("level3.safetyCheckPass", "L3 Safety check", l3.safetyCheckPass);
 
-  // Level 4: only the hallucination yes/no joins consensus, never the scores.
-  for (const d of level4Dimensions(grading)) {
+  push(
+    "level1.missedInstrumentsCount",
+    "L1 Missed instrument count",
+    missedInstrumentCountOf(grading),
+  );
+
+  // Level 4: always emit every OSATS dimension so a missing key in one payload
+  // cannot hide a hallucination disagreement.
+  for (const def of LEVEL4_DIMENSIONS) {
+    const fromStored = level4Dimensions(grading).find((d) => d.key === def.key);
     push(
-      `level4.dimensions.${d.key}.aiJustificationHallucination`,
-      `L4 ${d.label} hallucination`,
-      d.raw,
+      `level4.dimensions.${def.key}.aiJustificationHallucination`,
+      `L4 ${def.label} hallucination`,
+      fromStored?.raw ??
+        getCategoricalRaw(
+          grading,
+          `level4.dimensions.${def.key}.aiJustificationHallucination`,
+        ),
     );
   }
 
@@ -244,6 +302,7 @@ export function describeCategoricalPath(path: string): string {
   const simple: Record<string, string> = {
     "level1.procedureTypeCorrect": "L1 Procedure Type",
     "level1.spatialPositioningCorrect": "L1 Spatial Positioning",
+    "level1.missedInstrumentsCount": "L1 Missed instrument count",
     "level2.missedStepsDetectedCorrect": "L2 Missed-steps content",
     "level3.surgeryCompleted": "L3 Surgery completed",
     "level3.nextActionAccurate": "L3 Next action accurate",
@@ -254,6 +313,9 @@ export function describeCategoricalPath(path: string): string {
 }
 
 function normToken(raw: unknown): string | null {
+  // Boolean true/false are used both for correct/incorrect and for yes/no
+  // fields in stored payloads; callers that need yes/no semantics use
+  // compareTokenForPath.
   if (raw === true || raw === "correct") return "true";
   if (raw === false || raw === "incorrect") return "false";
   if (raw === "yes" || raw === "Yes") return "yes";
@@ -261,7 +323,22 @@ function normToken(raw: unknown): string | null {
   if (raw === "pass") return "pass";
   if (raw === "fail") return "fail";
   if (raw == null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
   return String(raw);
+}
+
+/** Compare token that unifies yes/no with boolean for hallucination & surgery. */
+export function compareTokenForPath(path: string, raw: unknown): string | null {
+  if (isYesNoPath(path)) {
+    if (raw === true || raw === "yes" || raw === "Yes") return "yes";
+    if (raw === false || raw === "no" || raw === "No") return "no";
+    return null;
+  }
+  if (isMissedInstrumentCountPath(path)) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? String(n) : null;
+  }
+  return normToken(raw);
 }
 
 /** Public compare token for discrepancy consensus. */
@@ -296,6 +373,9 @@ export function relatedDiscrepancyPaths(fieldPath: string): string[] {
     paths.push(
       fieldPath.replace(/\.missedStepsDetectedCorrect$/, ".missedStepsCorrection"),
     );
+  }
+  if (fieldPath === "level1.missedInstrumentsCount") {
+    paths.push("level1.missedInstruments");
   }
   if (fieldPath.endsWith(".segmentationCorrect")) {
     const base = fieldPath.replace(/\.segmentationCorrect$/, "");
@@ -362,8 +442,8 @@ export function findCategoricalDisagreements(
   for (const path of paths) {
     const a = getCategoricalRaw(grading1, path);
     const b = getCategoricalRaw(grading2, path);
-    const na = normToken(a);
-    const nb = normToken(b);
+    const na = compareTokenForPath(path, a);
+    const nb = compareTokenForPath(path, b);
     if (na == null && nb == null) continue;
     if (na === nb) continue;
     const label =

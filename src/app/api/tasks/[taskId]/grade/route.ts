@@ -6,15 +6,18 @@ import {
   findCategoricalDisagreements,
   getCategoricalRaw,
   majorityOfThree,
+  mergeMissedInstrumentNames,
+  missedInstrumentCountOf,
   setCategoricalRaw,
 } from "@/lib/categoricalFields";
 import {
   completedInSubmitOrder,
+  GRADERS_PER_VIDEO,
   isSubmissionOrderTiebreaker,
   type GradingOrderPeer,
 } from "@/lib/graders";
 import {
-  hallucinationDisagreements,
+  autoOpenDisagreements,
   openDiscrepancyItems,
   syncTimingDiscrepancies,
 } from "@/lib/discrepancyOpen";
@@ -110,8 +113,8 @@ export async function POST(
         ? parseJsonSafe(g2Row.gradingResult.gradingData, null)
         : null;
 
-      // Level 4 hallucination disagreements open on their own, no majority.
-      const autoHallucination = hallucinationDisagreements(g1, g2);
+      // Hallucination + missed-instrument count: any pairwise disagreement opens.
+      const autoOpen = autoOpenDisagreements(g1, g2, gradingData);
 
       // Paths already marked (or being marked now) as discrepancy solve — skip majority
       const existingOpen = await prisma.discrepancyItem.findMany({
@@ -121,7 +124,7 @@ export async function POST(
       const skipMajority = new Set([
         ...existingOpen.map((d) => d.fieldPath),
         ...allowedDiscPaths,
-        ...autoHallucination.map((d) => d.path),
+        ...autoOpen.map((d) => d.path),
       ]);
 
       if (allowedDiscPaths.length > 0) {
@@ -141,7 +144,7 @@ export async function POST(
 
       await openDiscrepancyItems(
         assignment.aiOutputId,
-        autoHallucination,
+        autoOpen,
         expert.expertId,
       );
 
@@ -200,6 +203,60 @@ export async function POST(
         regradeRequestedAt: null,
       },
     });
+
+    // When every grader reports the same missed-instrument count, union their
+    // free-text names into every saved grading (GT / metrics read this list).
+    const after = await prisma.taskAssignment.findMany({
+      where: { aiOutputId: assignment.aiOutputId, status: "COMPLETED" },
+      include: { gradingResult: true },
+    });
+    if (after.length >= GRADERS_PER_VIDEO) {
+      const gs = after.flatMap((a) => {
+        if (!a.gradingResult) return [];
+        const g = parseJsonSafe(a.gradingResult.gradingData, null);
+        return g && typeof g === "object" ? [g] : [];
+      });
+      if (gs.length >= GRADERS_PER_VIDEO) {
+        const counts = gs.map((g) => missedInstrumentCountOf(g));
+        const sameCount = counts.every((c) => c === counts[0]);
+        const countOpen = await prisma.discrepancyItem.findFirst({
+          where: {
+            aiOutputId: assignment.aiOutputId,
+            fieldPath: "level1.missedInstrumentsCount",
+            status: "OPEN",
+          },
+        });
+        if (sameCount && !countOpen) {
+          const merged = mergeMissedInstrumentNames(gs);
+          for (const a of after) {
+            if (!a.gradingResult) continue;
+            const gd = parseJsonSafe(a.gradingResult.gradingData, {});
+            const next = structuredClone(gd ?? {});
+            setCategoricalRaw(next, "level1.missedInstruments", merged);
+            setCategoricalRaw(next, "level1.missedInstrumentsCount", merged.length);
+            await prisma.gradingResult.update({
+              where: { id: a.gradingResult.id },
+              data: { gradingData: stringifyJson(next) },
+            });
+          }
+        }
+      }
+    }
+
+    // Open hallucination / missed-count discrepancies as soon as any pair of
+    // completed graders disagrees (not only when the tiebreaker submits).
+    if (after.length >= 2) {
+      const completedGs = after.flatMap((a) => {
+        if (!a.gradingResult) return [];
+        const g = parseJsonSafe(a.gradingResult.gradingData, null);
+        return g && typeof g === "object" ? [g] : [];
+      });
+      await openDiscrepancyItems(
+        assignment.aiOutputId,
+        autoOpenDisagreements(...completedGs),
+        expert.expertId,
+      );
+    }
 
     // Level 2 timing: >3s apart on a bound or on the window length
     const timingPaths = await syncTimingDiscrepancies(

@@ -712,8 +712,10 @@ export function GradingFormPanel({
         <FieldAnchor
           id="l1-missedInstruments"
           error={hasError("l1-missedInstruments")}
+          highlight={isHot("level1.missedInstrumentsCount")}
           style={{ marginTop: 8, padding: 8, borderRadius: 8 }}
         >
+          <DiscSolve path="level1.missedInstrumentsCount" />
           <MissedItemsField
             label="Missed instruments (not listed by AI)"
             values={watchedMissedInstruments}
@@ -1467,6 +1469,16 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
             <div
               key={d.key}
               className={`grading-sub${scoreErr || hallErr ? " grading-error" : ""}`}
+              style={
+                isHot(hallPath)
+                  ? {
+                      background: "#fce7f3",
+                      boxShadow: "inset 0 0 0 1px #f9a8d4",
+                      borderRadius: 8,
+                      padding: 8,
+                    }
+                  : undefined
+              }
             >
               <div style={{ fontWeight: 700 }}>{d.label}</div>
               <ul

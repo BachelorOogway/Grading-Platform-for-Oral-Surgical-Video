@@ -24,7 +24,7 @@ export function PriorCategoricalColumn({
         {title}
       </h3>
       <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-        仅显示选择题答案（不含手填与 Level 4）
+        仅显示选择题答案（不含手填与 Level 4 分数；含 hallucination）
       </p>
       <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
         {fields.map((f) => {

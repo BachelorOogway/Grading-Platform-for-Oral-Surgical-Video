@@ -1,5 +1,12 @@
 import { parseJsonSafe } from "@/lib/json";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
+import {
+  getCategoricalRaw,
+  mergeMissedInstrumentNames,
+  missedInstrumentCountOf,
+  missedInstrumentNames,
+} from "@/lib/categoricalFields";
+import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return '""';
@@ -13,49 +20,165 @@ export type GroundTruthRowInput = {
   submittedAt: string;
   gradingData: unknown;
   parsedData: unknown;
-  /** 1 | 2 | 3 — prefer slot 3 (majority consensus) when present */
+  /** 1 | 2 | 3 — used only as a fallback when building consensus */
   graderSlot?: number;
 };
 
-/**
- * One row per video: prefer grader slot 3 (tiebreaker with 2:1 majority applied),
- * else earliest submission. Tie-break by expertId ascending.
- */
-export function pickFirstExpertPerVideo(
-  rows: GroundTruthRowInput[],
-): GroundTruthRowInput[] {
-  const byVideo = new Map<string, GroundTruthRowInput>();
+function asObject(raw: unknown): any {
+  if (typeof raw === "string") return parseJsonSafe(raw, {}) ?? {};
+  if (raw && typeof raw === "object") return raw;
+  return {};
+}
 
-  function better(a: GroundTruthRowInput, b: GroundTruthRowInput): boolean {
-    const slotA = a.graderSlot ?? 0;
-    const slotB = b.graderSlot ?? 0;
-    if (slotA === 3 && slotB !== 3) return true;
-    if (slotB === 3 && slotA !== 3) return false;
-    const tA = Date.parse(a.submittedAt) || 0;
-    const tB = Date.parse(b.submittedAt) || 0;
-    if (tA !== tB) return tA < tB;
-    return a.expertId.localeCompare(b.expertId) < 0;
-  }
+function ynHall(v: unknown): "yes" | "no" | "" {
+  if (v === true || v === "yes" || v === "Yes") return "yes";
+  if (v === false || v === "no" || v === "No") return "no";
+  return "";
+}
 
-  for (const row of rows) {
-    const key = row.videoOutputId;
-    const prev = byVideo.get(key);
-    if (!prev || better(row, prev)) {
-      byVideo.set(key, row);
-    }
-  }
-  return Array.from(byVideo.values()).sort((a, b) =>
-    a.videoOutputId.localeCompare(b.videoOutputId),
+function expertScoreOf(grading: any, key: string): number | null {
+  const raw = getCategoricalRaw(
+    grading,
+    `level4.dimensions.${key}.expertScore`,
   );
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
- * Build per-video ground truth:
- * AI value kept when expert marked correct; otherwise expert correction.
- * Level 4 expert scores included. Prefer 3rd grader (majority) when available.
+ * Build one consensus grading per video from all completed forms:
+ * - Categorical fields are already aligned after discrepancy resolve / majority.
+ * - Prefer the chronologically last completer (usually the tiebreaker) as the
+ *   structural base, then overlay averaged Level 4 scores and merged missed
+ *   instruments when counts agree.
+ */
+export function buildConsensusGrading(
+  rows: GroundTruthRowInput[],
+): { grading: any; expertIds: string[]; submittedAt: string } | null {
+  if (rows.length === 0) return null;
+  const sorted = [...rows].sort((a, b) => {
+    const slotA = a.graderSlot ?? 0;
+    const slotB = b.graderSlot ?? 0;
+    // Prefer slot 3 as base when present (post-majority / resolve write-back).
+    if (slotA === 3 && slotB !== 3) return -1;
+    if (slotB === 3 && slotA !== 3) return 1;
+    const tA = Date.parse(a.submittedAt) || 0;
+    const tB = Date.parse(b.submittedAt) || 0;
+    if (tA !== tB) return tB - tA;
+    return a.expertId.localeCompare(b.expertId);
+  });
+
+  const gradings = sorted.map((r) => asObject(r.gradingData));
+  const base = structuredClone(gradings[0] ?? {});
+
+  // Missed instruments: same count → union of names; else keep base (discrepancy).
+  const counts = gradings.map((g) => missedInstrumentCountOf(g));
+  const sameCount = counts.length > 0 && counts.every((c) => c === counts[0]);
+  if (sameCount) {
+    const merged = mergeMissedInstrumentNames(gradings);
+    if (!base.level1 || typeof base.level1 !== "object") base.level1 = {};
+    base.level1.missedInstruments = merged;
+    base.level1.missedInstrumentsCount = merged.length;
+  }
+
+  // Level 4 scores: arithmetic mean of the three experts; hallucination from base
+  // (already consensus after resolve / majority skip).
+  if (!base.level4 || typeof base.level4 !== "object") base.level4 = {};
+  const dimMap = new Map<string, any>();
+  const existing = base.level4.dimensions;
+  if (Array.isArray(existing)) {
+    for (const d of existing) {
+      if (d?.key) dimMap.set(String(d.key), { ...d });
+    }
+  } else if (existing && typeof existing === "object") {
+    for (const [k, d] of Object.entries(existing as Record<string, any>)) {
+      dimMap.set(k, { key: k, ...(d as object) });
+    }
+  }
+
+  for (const def of LEVEL4_DIMENSIONS) {
+    const scores = gradings
+      .map((g) => expertScoreOf(g, def.key))
+      .filter((n): n is number => n != null);
+    const avg =
+      scores.length > 0
+        ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) /
+          100
+        : null;
+    const prev = dimMap.get(def.key) ?? { key: def.key };
+    // Hallucination: prefer resolved base; if still empty, majority of yes/no.
+    let hall = prev.aiJustificationHallucination;
+    if (hall !== true && hall !== false && hall !== "yes" && hall !== "no") {
+      const votes = gradings.map((g) =>
+        ynHall(
+          getCategoricalRaw(
+            g,
+            `level4.dimensions.${def.key}.aiJustificationHallucination`,
+          ),
+        ),
+      );
+      const yes = votes.filter((v) => v === "yes").length;
+      const no = votes.filter((v) => v === "no").length;
+      hall = yes > no ? true : no > yes ? false : hall;
+    }
+    dimMap.set(def.key, {
+      ...prev,
+      key: def.key,
+      label: def.label,
+      expertScore: avg,
+      aiJustificationHallucination:
+        hall === true || hall === "yes"
+          ? true
+          : hall === false || hall === "no"
+            ? false
+            : hall,
+    });
+  }
+
+  base.level4.dimensions = LEVEL4_DIMENSIONS.map(
+    (d) => dimMap.get(d.key) ?? { key: d.key, label: d.label },
+  );
+  const hall = computeLevel4HallucinationRate(
+    Object.fromEntries(
+      LEVEL4_DIMENSIONS.map((d) => {
+        const row = dimMap.get(d.key);
+        return [
+          d.key,
+          {
+            aiJustificationHallucination: ynHall(
+              row?.aiJustificationHallucination,
+            ),
+          },
+        ];
+      }),
+    ),
+    LEVEL4_DIMENSIONS.map((d) => d.key),
+  );
+  if (hall) {
+    base.level4.hallucinationRate = hall.rate;
+    base.level4.hallucinationYesCount = hall.yesCount;
+    base.level4.hallucinationTotalCount = hall.totalCount;
+  }
+
+  return {
+    grading: base,
+    expertIds: sorted.map((r) => r.expertId),
+    submittedAt: sorted[0]?.submittedAt ?? "",
+  };
+}
+
+/**
+ * Build per-video ground truth from all graders on each video.
+ * Level 4 expert scores are the mean of the three; other fields follow the
+ * consensus grading (post discrepancy-solve / majority).
  */
 export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
-  const selected = pickFirstExpertPerVideo(rows);
+  const byVideo = new Map<string, GroundTruthRowInput[]>();
+  for (const row of rows) {
+    const list = byVideo.get(row.videoOutputId) ?? [];
+    list.push(row);
+    byVideo.set(row.videoOutputId, list);
+  }
 
   const l4Headers = LEVEL4_DIMENSIONS.flatMap((d) => [
     `l4_${d.key}_expert_score`,
@@ -64,7 +187,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
 
   const headers = [
     "videoOutputId",
-    "expertId",
+    "expertIds",
     "submittedAt",
     "procedure_type_final",
     "procedure_type_source",
@@ -91,19 +214,14 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
 
   const lines = [headers.map(csvEscape).join(",")];
 
-  for (const row of selected) {
-    const gd: any =
-      typeof row.gradingData === "string"
-        ? parseJsonSafe(row.gradingData, {})
-        : row.gradingData && typeof row.gradingData === "object"
-          ? row.gradingData
-          : {};
-    const parsed: any =
-      typeof row.parsedData === "string"
-        ? parseJsonSafe(row.parsedData, {})
-        : row.parsedData && typeof row.parsedData === "object"
-          ? row.parsedData
-          : {};
+  const videos = Array.from(byVideo.keys()).sort((a, b) => a.localeCompare(b));
+  for (const videoOutputId of videos) {
+    const group = byVideo.get(videoOutputId)!;
+    const consensus = buildConsensusGrading(group);
+    if (!consensus) continue;
+
+    const gd = consensus.grading;
+    const parsed = asObject(group[0]?.parsedData);
 
     const l1 = gd.level1 ?? {};
     const l2 = gd.level2 ?? {};
@@ -152,9 +270,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
       )
       .map((s) => s.name);
 
-    const missedInstruments: string[] = Array.isArray(l1.missedInstruments)
-      ? l1.missedInstruments
-      : [];
+    const missedInstruments = missedInstrumentNames(gd);
 
     const spatialFinal =
       l1.spatialPositioning ??
@@ -182,7 +298,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
       }));
 
     const missedPhases: string[] = Array.isArray(l2.missedPhases)
-      ? l2.missedPhases
+      ? l2.missedPhases.filter((x: unknown) => String(x ?? "").trim())
       : [];
 
     const nextActionFinal =
@@ -206,14 +322,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     const l4Cols = LEVEL4_DIMENSIONS.flatMap((def) => {
       const d = l4ByKey.get(def.key);
       const score = d?.expertScore ?? "";
-      const hall =
-        d?.aiJustificationHallucination === true ||
-        d?.aiJustificationHallucination === "yes"
-          ? "yes"
-          : d?.aiJustificationHallucination === false ||
-              d?.aiJustificationHallucination === "no"
-            ? "no"
-            : "";
+      const hall = ynHall(d?.aiJustificationHallucination);
       return [score, hall];
     });
 
@@ -222,9 +331,9 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
 
     lines.push(
       [
-        row.videoOutputId,
-        row.expertId,
-        row.submittedAt,
+        videoOutputId,
+        consensus.expertIds.join("|"),
+        consensus.submittedAt,
         procedureFinal,
         procedureSource,
         JSON.stringify(structuresFinal),
@@ -261,4 +370,33 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
   }
 
   return lines.join("\n");
+}
+
+/** @deprecated Prefer buildConsensusGrading — kept for callers that expect one row. */
+export function pickFirstExpertPerVideo(
+  rows: GroundTruthRowInput[],
+): GroundTruthRowInput[] {
+  const byVideo = new Map<string, GroundTruthRowInput>();
+
+  function better(a: GroundTruthRowInput, b: GroundTruthRowInput): boolean {
+    const slotA = a.graderSlot ?? 0;
+    const slotB = b.graderSlot ?? 0;
+    if (slotA === 3 && slotB !== 3) return true;
+    if (slotB === 3 && slotA !== 3) return false;
+    const tA = Date.parse(a.submittedAt) || 0;
+    const tB = Date.parse(b.submittedAt) || 0;
+    if (tA !== tB) return tA < tB;
+    return a.expertId.localeCompare(b.expertId) < 0;
+  }
+
+  for (const row of rows) {
+    const key = row.videoOutputId;
+    const prev = byVideo.get(key);
+    if (!prev || better(row, prev)) {
+      byVideo.set(key, row);
+    }
+  }
+  return Array.from(byVideo.values()).sort((a, b) =>
+    a.videoOutputId.localeCompare(b.videoOutputId),
+  );
 }

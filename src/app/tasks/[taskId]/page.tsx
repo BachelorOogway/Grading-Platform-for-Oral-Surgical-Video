@@ -123,6 +123,9 @@ export default function TaskGradingPage() {
   const priorGraders = task?.consensus?.priorGraders ?? [];
   const highlightPaths = useMemo(() => {
     const s = disagreePathSet(disagreements);
+    for (const d of disagreements) {
+      for (const p of relatedDiscrepancyPaths(d.path)) s.add(p);
+    }
     for (const d of task?.openDiscrepancies ?? []) {
       for (const p of relatedDiscrepancyPaths(d.fieldPath)) {
         s.add(p);
