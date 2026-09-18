@@ -334,3 +334,126 @@ export function parseAiOutputToParsedData(inputText: string): AiParsedData {
     level4: parseLevel4(text),
   };
 }
+
+export type AiParseValidation = {
+  ok: boolean;
+  missing: string[];
+  message: string;
+};
+
+function pushMissing(missing: string[], label: string, ok: boolean) {
+  if (!ok) missing.push(label);
+}
+
+/**
+ * Every parsed field must be present for an upload to be accepted.
+ * Empty Level 4 AI scores (or any other blank required field) fail validation
+ * so the admin is told to fix the text and re-upload.
+ */
+export function validateAiParsedData(parsed: AiParsedData): AiParseValidation {
+  const missing: string[] = [];
+  const l1 = parsed.level1;
+  const l2 = parsed.level2;
+  const l3 = parsed.level3;
+  const l4 = parsed.level4;
+
+  pushMissing(missing, "Level 1 Procedure Type", Boolean(l1.procedureType?.trim()));
+  pushMissing(
+    missing,
+    "Level 1 Anatomical/Pathological Structures (at least one)",
+    Array.isArray(l1.structures) &&
+      l1.structures.length > 0 &&
+      l1.structures.every((s) => Boolean(s?.name?.trim())),
+  );
+  pushMissing(
+    missing,
+    "Level 1 Total number of detected structures",
+    l1.totalStructures != null && Number.isFinite(l1.totalStructures),
+  );
+  pushMissing(
+    missing,
+    "Level 1 Instrument Inventory (at least one)",
+    Array.isArray(l1.instruments) &&
+      l1.instruments.length > 0 &&
+      l1.instruments.every((s) => Boolean(s?.name?.trim())),
+  );
+  pushMissing(
+    missing,
+    "Level 1 Total number of detected instruments",
+    l1.totalInstruments != null && Number.isFinite(l1.totalInstruments),
+  );
+  pushMissing(
+    missing,
+    "Level 1 Spatial Positioning",
+    Boolean(l1.spatialPositioning?.trim()),
+  );
+
+  pushMissing(
+    missing,
+    "Level 2 phases (at least one timed phase)",
+    Array.isArray(l2.phases) &&
+      l2.phases.length > 0 &&
+      l2.phases.every(
+        (p) =>
+          Boolean(p.aiStartTime?.trim()) &&
+          Boolean(p.aiEndTime?.trim()) &&
+          Boolean(p.description?.trim()),
+      ),
+  );
+  pushMissing(
+    missing,
+    "Level 2 Total number of detected phases",
+    l2.totalPhases != null && Number.isFinite(l2.totalPhases),
+  );
+  pushMissing(
+    missing,
+    "Level 2 Missed Steps Evaluation",
+    Boolean(l2.missedStepsEvaluation?.trim()),
+  );
+
+  pushMissing(
+    missing,
+    "Level 3 Is the surgery completed? (Yes/No)",
+    l3.surgeryCompleted === "Yes" ||
+      l3.surgeryCompleted === "No" ||
+      l3.surgeryCompleted === "yes" ||
+      l3.surgeryCompleted === "no",
+  );
+  pushMissing(
+    missing,
+    "Level 3 Next Action Prediction",
+    Boolean(l3.nextActionPrediction?.trim()),
+  );
+  pushMissing(
+    missing,
+    "Level 3 Clinical Rationale",
+    Boolean(l3.clinicalRationale?.trim()),
+  );
+
+  const dims = Array.isArray(l4.dimensions) ? l4.dimensions : [];
+  const byKey = new Map(dims.map((d) => [d.key, d]));
+  for (const def of LEVEL4_DIMENSIONS) {
+    const d = byKey.get(def.key);
+    const scoreOk =
+      d != null &&
+      Number.isFinite(d.aiScore) &&
+      d.aiScore >= 1 &&
+      d.aiScore <= 5;
+    const justOk = Boolean(d?.justification?.trim());
+    pushMissing(missing, `Level 4 ${def.label} AI score`, scoreOk);
+    pushMissing(missing, `Level 4 ${def.label} justification`, justOk);
+  }
+
+  if (missing.length === 0) {
+    return { ok: true, missing: [], message: "" };
+  }
+
+  return {
+    ok: false,
+    missing,
+    message:
+      "AI 输出解析不完整，请修正后重新上传。缺失字段：" +
+      missing.join("；") +
+      "。",
+  };
+}

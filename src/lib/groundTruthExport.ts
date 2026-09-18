@@ -7,6 +7,16 @@ import {
   missedInstrumentNames,
 } from "@/lib/categoricalFields";
 import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
+import {
+  computeLevel2ContentMetrics,
+  computeLevel2TemporalMetrics,
+  temporalIoU,
+  timeToSeconds,
+} from "@/lib/temporalMetrics";
+import {
+  TIMING_DISCREPANCY_THRESHOLD_SEC,
+  timesWithinThreshold,
+} from "@/lib/timingDiscrepancy";
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return '""';
@@ -45,21 +55,177 @@ function expertScoreOf(grading: any, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function secondsToTime(totalSec: number): string {
+  const s = Math.max(0, Math.round(totalSec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
+
+function meanSeconds(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function missedPhaseNames(grading: any): string[] {
+  const list = grading?.level2?.missedPhases;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((x: unknown) => String(x ?? "").trim())
+    .filter(Boolean);
+}
+
+function missedPhaseCountOf(grading: any): number {
+  const fromList = missedPhaseNames(grading).length;
+  if (fromList > 0 || Array.isArray(grading?.level2?.missedPhases)) {
+    return fromList;
+  }
+  const n = Number(grading?.level2?.missedPhasesCount);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function mergeMissedPhaseNames(gradings: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const g of gradings) {
+    for (const name of missedPhaseNames(g)) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+function retainedStructureNames(grading: any): string[] {
+  const structures: any[] = Array.isArray(grading?.level1?.structures)
+    ? grading.level1.structures
+    : [];
+  return structures
+    .filter(
+      (s) =>
+        s?.correct === true ||
+        (s?.finalName && s?.incorrectReason !== "hallucination_absent"),
+    )
+    .map((s) => String(s.finalName ?? s.name ?? "").trim())
+    .filter(Boolean);
+}
+
+function mergeStructureNamesWhenSameCount(gradings: any[]): string[] | null {
+  const counts = gradings.map((g) => retainedStructureNames(g).length);
+  if (counts.length === 0) return null;
+  if (!counts.every((c) => c === counts[0])) return null;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const g of gradings) {
+    for (const name of retainedStructureNames(g)) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+type PhaseBounds = { start: number; end: number };
+
 /**
- * Build one consensus grading per video from all completed forms:
- * - Categorical fields are already aligned after discrepancy resolve / majority.
- * - Prefer the chronologically last completer (usually the tiebreaker) as the
- *   structural base, then overlay averaged Level 4 scores and merged missed
- *   instruments when counts agree.
+ * Average phase bounds across experts when every start (and every end) is
+ * within the timing threshold; then stitch so consecutive phases share a
+ * boundary with no gaps.
+ */
+export function averageAndStitchPhaseTimes(
+  gradings: any[],
+  thresholdSec = TIMING_DISCREPANCY_THRESHOLD_SEC,
+): Array<{ trueStartTime: string; trueEndTime: string } | null> {
+  let n = 0;
+  for (const g of gradings) {
+    const phases = g?.level2?.phases;
+    if (Array.isArray(phases)) n = Math.max(n, phases.length);
+  }
+  if (n === 0) return [];
+
+  const averaged: Array<PhaseBounds | null> = [];
+  for (let i = 0; i < n; i++) {
+    const starts: number[] = [];
+    const ends: number[] = [];
+    const startStrs: string[] = [];
+    const endStrs: string[] = [];
+    for (const g of gradings) {
+      const p = g?.level2?.phases?.[i];
+      const startRaw = String(p?.trueStartTime || p?.aiStartTime || "").trim();
+      const endRaw = String(p?.trueEndTime || p?.aiEndTime || "").trim();
+      const s = timeToSeconds(startRaw);
+      const e = timeToSeconds(endRaw);
+      if (s != null) {
+        starts.push(s);
+        startStrs.push(startRaw);
+      }
+      if (e != null) {
+        ends.push(e);
+        endStrs.push(endRaw);
+      }
+    }
+    const startOk =
+      starts.length > 0 && timesWithinThreshold(startStrs, thresholdSec);
+    const endOk =
+      ends.length > 0 && timesWithinThreshold(endStrs, thresholdSec);
+    if (!startOk || !endOk) {
+      averaged.push(null);
+      continue;
+    }
+    const start = meanSeconds(starts);
+    const end = meanSeconds(ends);
+    if (start == null || end == null) {
+      averaged.push(null);
+      continue;
+    }
+    averaged.push({ start, end: Math.max(end, start) });
+  }
+
+  for (let i = 0; i < n - 1; i++) {
+    const cur = averaged[i];
+    const next = averaged[i + 1];
+    if (!cur || !next) continue;
+    const boundary = Math.round((cur.end + next.start) / 2);
+    cur.end = boundary;
+    next.start = boundary;
+  }
+
+  for (const b of averaged) {
+    if (!b) continue;
+    if (b.end <= b.start) b.end = b.start + 1;
+  }
+
+  return averaged.map((b) =>
+    b
+      ? {
+          trueStartTime: secondsToTime(b.start),
+          trueEndTime: secondsToTime(b.end),
+        }
+      : null,
+  );
+}
+
+/**
+ * Build one consensus grading per video from all completed forms.
  */
 export function buildConsensusGrading(
   rows: GroundTruthRowInput[],
-): { grading: any; expertIds: string[]; submittedAt: string } | null {
+): {
+  grading: any;
+  expertIds: string[];
+  submittedAt: string;
+  structuresMerged: string[] | null;
+} | null {
   if (rows.length === 0) return null;
   const sorted = [...rows].sort((a, b) => {
     const slotA = a.graderSlot ?? 0;
     const slotB = b.graderSlot ?? 0;
-    // Prefer slot 3 as base when present (post-majority / resolve write-back).
     if (slotA === 3 && slotB !== 3) return -1;
     if (slotB === 3 && slotA !== 3) return 1;
     const tA = Date.parse(a.submittedAt) || 0;
@@ -71,18 +237,82 @@ export function buildConsensusGrading(
   const gradings = sorted.map((r) => asObject(r.gradingData));
   const base = structuredClone(gradings[0] ?? {});
 
-  // Missed instruments: same count → union of names; else keep base (discrepancy).
-  const counts = gradings.map((g) => missedInstrumentCountOf(g));
-  const sameCount = counts.length > 0 && counts.every((c) => c === counts[0]);
-  if (sameCount) {
+  const instrCounts = gradings.map((g) => missedInstrumentCountOf(g));
+  const sameInstrCount =
+    instrCounts.length > 0 && instrCounts.every((c) => c === instrCounts[0]);
+  if (sameInstrCount) {
     const merged = mergeMissedInstrumentNames(gradings);
     if (!base.level1 || typeof base.level1 !== "object") base.level1 = {};
     base.level1.missedInstruments = merged;
     base.level1.missedInstrumentsCount = merged.length;
   }
 
-  // Level 4 scores: arithmetic mean of the three experts; hallucination from base
-  // (already consensus after resolve / majority skip).
+  const phaseMissCounts = gradings.map((g) => missedPhaseCountOf(g));
+  const samePhaseMiss =
+    phaseMissCounts.length > 0 &&
+    phaseMissCounts.every((c) => c === phaseMissCounts[0]);
+  if (samePhaseMiss) {
+    const merged = mergeMissedPhaseNames(gradings);
+    if (!base.level2 || typeof base.level2 !== "object") base.level2 = {};
+    base.level2.missedPhases = merged;
+    base.level2.missedPhasesCount = merged.length;
+  }
+
+  const structuresMerged = mergeStructureNamesWhenSameCount(gradings);
+
+  const stitched = averageAndStitchPhaseTimes(gradings);
+  if (!base.level2 || typeof base.level2 !== "object") base.level2 = {};
+  if (!Array.isArray(base.level2.phases)) base.level2.phases = [];
+  for (let i = 0; i < stitched.length; i++) {
+    const t = stitched[i];
+    if (!t) continue;
+    if (!base.level2.phases[i] || typeof base.level2.phases[i] !== "object") {
+      base.level2.phases[i] = {};
+    }
+    base.level2.phases[i].trueStartTime = t.trueStartTime;
+    base.level2.phases[i].trueEndTime = t.trueEndTime;
+    const aiStart = String(base.level2.phases[i].aiStartTime ?? "");
+    const aiEnd = String(base.level2.phases[i].aiEndTime ?? "");
+    if (aiStart && aiEnd) {
+      base.level2.phases[i].temporalIoU = temporalIoU(
+        aiStart,
+        aiEnd,
+        t.trueStartTime,
+        t.trueEndTime,
+      );
+    }
+  }
+
+  {
+    const phases = Array.isArray(base.level2.phases) ? base.level2.phases : [];
+    const temporal = computeLevel2TemporalMetrics(
+      phases.map((p: any) => ({
+        aiStartTime: String(p?.aiStartTime ?? ""),
+        aiEndTime: String(p?.aiEndTime ?? ""),
+        trueStartTime: String(p?.trueStartTime ?? ""),
+        trueEndTime: String(p?.trueEndTime ?? ""),
+      })),
+    );
+    const content = computeLevel2ContentMetrics(
+      phases.map((p: any) => ({
+        contentCorrect: p?.contentCorrect,
+        phaseErrorType: p?.phaseErrorType,
+      })),
+    );
+    base.level2.metrics = {
+      meanTemporalIoU: temporal.meanTemporalIoU,
+      mapAtIoU: temporal.mapAtIoU,
+      contentAccuracy: content.contentAccuracy,
+      contentHallucinationRate: content.contentHallucinationRate,
+      contentMisrecognitionRate: content.contentMisrecognitionRate,
+      contentCorrectCount: content.contentCorrectCount,
+      contentHallucinationCount: content.contentHallucinationCount,
+      contentMisrecognitionCount: content.contentMisrecognitionCount,
+      contentTotalCount: content.total,
+      perPhaseIoU: temporal.perPhaseIoU,
+    };
+  }
+
   if (!base.level4 || typeof base.level4 !== "object") base.level4 = {};
   const dimMap = new Map<string, any>();
   const existing = base.level4.dimensions;
@@ -106,7 +336,6 @@ export function buildConsensusGrading(
           100
         : null;
     const prev = dimMap.get(def.key) ?? { key: def.key };
-    // Hallucination: prefer resolved base; if still empty, majority of yes/no.
     let hall = prev.aiJustificationHallucination;
     if (hall !== true && hall !== false && hall !== "yes" && hall !== "no") {
       const votes = gradings.map((g) =>
@@ -164,13 +393,13 @@ export function buildConsensusGrading(
     grading: base,
     expertIds: sorted.map((r) => r.expertId),
     submittedAt: sorted[0]?.submittedAt ?? "",
+    structuresMerged,
   };
 }
 
 /**
- * Build per-video ground truth from all graders on each video.
- * Level 4 expert scores are the mean of the three; other fields follow the
- * consensus grading (post discrepancy-solve / majority).
+ * Build per-video ground truth CSV: one row per video with all metrics,
+ * including Level 2 timing (averaged + contiguous when within 3s).
  */
 export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
   const byVideo = new Map<string, GroundTruthRowInput[]>();
@@ -192,17 +421,36 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     "procedure_type_final",
     "procedure_type_source",
     "structures_final_json",
+    "structures_merged_json",
     "structures_removed_hallucinations_json",
+    "structure_correct_count",
+    "structure_total_count",
+    "structure_precision",
+    "structure_hallucination_rate",
+    "structure_misrecognition_rate",
     "instruments_final_json",
     "instruments_removed_hallucinations_json",
     "missed_instruments_json",
     "missed_instruments_count",
+    "instrument_correct_count",
+    "instrument_total_count",
+    "instrument_precision",
+    "instrument_recall",
+    "instrument_f1",
+    "instrument_hallucination_rate",
+    "instrument_misrecognition_rate",
     "spatial_positioning_final",
     "spatial_positioning_source",
     "phases_final_json",
+    "phases_timing_json",
     "missed_phases_json",
     "missed_phases_count",
     "missed_steps_final",
+    "l2_mean_temporal_iou",
+    "l2_map_at_iou",
+    "l2_content_accuracy",
+    "l2_content_hallucination_rate",
+    "l2_content_misrecognition_rate",
     "next_action_final",
     "next_action_source",
     "nomenclature_correction",
@@ -227,6 +475,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     const l2 = gd.level2 ?? {};
     const l3 = gd.level3 ?? {};
     const l4 = gd.level4 ?? {};
+    const l2m = l2.metrics ?? {};
 
     const procedureFinal =
       l1.procedureType ??
@@ -255,7 +504,9 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
       )
       .map((s) => s.name);
 
-    const instruments: any[] = Array.isArray(l1.instruments) ? l1.instruments : [];
+    const instruments: any[] = Array.isArray(l1.instruments)
+      ? l1.instruments
+      : [];
     const instrumentsFinal = instruments
       .filter((s) => s?.correct === true || s?.finalName)
       .map((s) => ({
@@ -285,17 +536,30 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
         : "";
 
     const phases: any[] = Array.isArray(l2.phases) ? l2.phases : [];
-    const phasesFinal = phases
-      .filter((p) => p?.contentCorrect === true || p?.finalDescription)
-      .map((p) => ({
-        aiDescription: p.description,
-        finalDescription: p.finalDescription ?? p.description,
-        start: p.trueStartTime || p.aiStartTime,
-        end: p.trueEndTime || p.aiEndTime,
-        contentSource: p.contentCorrect ? "ai" : "expert",
-        timingAdjusted:
-          p.trueStartTime !== p.aiStartTime || p.trueEndTime !== p.aiEndTime,
-      }));
+    const phasesFinal = phases.map((p, i) => ({
+      index: i + 1,
+      aiDescription: p.description,
+      finalDescription: p.finalDescription ?? p.description,
+      aiStart: p.aiStartTime ?? "",
+      aiEnd: p.aiEndTime ?? "",
+      trueStart: p.trueStartTime || p.aiStartTime || "",
+      trueEnd: p.trueEndTime || p.aiEndTime || "",
+      temporalIoU: p.temporalIoU ?? null,
+      segmentationCorrect: p.segmentationCorrect === true,
+      contentCorrect: p.contentCorrect === true,
+      contentSource: p.contentCorrect ? "ai" : "expert",
+      phaseErrorType: p.phaseErrorType ?? null,
+      timingAdjusted:
+        Boolean(p.trueStartTime || p.trueEndTime) &&
+        (p.trueStartTime !== p.aiStartTime || p.trueEndTime !== p.aiEndTime),
+    }));
+
+    const phasesTiming = phases.map((p, i) => ({
+      index: i + 1,
+      trueStart: p.trueStartTime || p.aiStartTime || "",
+      trueEnd: p.trueEndTime || p.aiEndTime || "",
+      temporalIoU: p.temporalIoU ?? null,
+    }));
 
     const missedPhases: string[] = Array.isArray(l2.missedPhases)
       ? l2.missedPhases.filter((x: unknown) => String(x ?? "").trim())
@@ -322,8 +586,8 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     const l4Cols = LEVEL4_DIMENSIONS.flatMap((def) => {
       const d = l4ByKey.get(def.key);
       const score = d?.expertScore ?? "";
-      const hall = ynHall(d?.aiJustificationHallucination);
-      return [score, hall];
+      const h = ynHall(d?.aiJustificationHallucination);
+      return [score, h];
     });
 
     const hallRate =
@@ -337,17 +601,36 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
         procedureFinal,
         procedureSource,
         JSON.stringify(structuresFinal),
+        JSON.stringify(consensus.structuresMerged ?? []),
         JSON.stringify(structuresRemoved),
+        l1.structureCorrectCount ?? "",
+        l1.structureTotalCount ?? structures.length,
+        l1.structurePrecision ?? "",
+        l1.structureHallucinationRate ?? "",
+        l1.structureMisrecognitionRate ?? "",
         JSON.stringify(instrumentsFinal),
         JSON.stringify(instrumentsRemoved),
         JSON.stringify(missedInstruments),
         missedInstruments.length,
+        l1.instrumentCorrectCount ?? "",
+        l1.instrumentTotalCount ?? instruments.length,
+        l1.instrumentPrecision ?? "",
+        l1.instrumentRecall ?? "",
+        l1.instrumentF1 ?? "",
+        l1.instrumentHallucinationRate ?? "",
+        l1.instrumentMisrecognitionRate ?? "",
         spatialFinal,
         spatialSource,
         JSON.stringify(phasesFinal),
+        JSON.stringify(phasesTiming),
         JSON.stringify(missedPhases),
         missedPhases.length,
         l2.missedStepsFinal ?? l2.missedStepsCorrection ?? "",
+        l2m.meanTemporalIoU ?? "",
+        l2m.mapAtIoU ?? "",
+        l2m.contentAccuracy ?? "",
+        l2m.contentHallucinationRate ?? "",
+        l2m.contentMisrecognitionRate ?? "",
         nextActionFinal,
         nextActionSource,
         l3.nomenclatureCorrection ?? "",

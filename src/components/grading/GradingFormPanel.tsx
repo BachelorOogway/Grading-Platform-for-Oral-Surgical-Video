@@ -238,7 +238,7 @@ type Props = {
   highlightPaths?: Set<string>;
   discrepancySolvePaths?: Set<string>;
   showDiscrepancySolve?: boolean;
-  onToggleDiscrepancySolve?: (path: string) => void;
+  onToggleDiscrepancySolve?: (path: string | string[]) => void;
   formTitle?: string;
   hideSubmit?: boolean;
   domPrefix?: string;
@@ -300,6 +300,33 @@ export function GradingFormPanel({
       <DiscrepancySolveRadio
         selected={Boolean(discrepancySolvePaths?.has(path))}
         onToggle={() => onToggleDiscrepancySolve(path)}
+      />
+    );
+  }
+
+  /** One DiscSolve control for an entire Level 2 phase block. */
+  function PhaseDiscSolve({ phaseIndex }: { phaseIndex: number }) {
+    if (!showDiscrepancySolve || !onToggleDiscrepancySolve) return null;
+    const paths = [
+      `level2.phases.${phaseIndex}.segmentationCorrect`,
+      `level2.phases.${phaseIndex}.contentCorrect`,
+      `level2.phases.${phaseIndex}.trueStartTime`,
+      `level2.phases.${phaseIndex}.trueEndTime`,
+    ];
+    const selected = paths.some((p) => Boolean(discrepancySolvePaths?.has(p)));
+    return (
+      <DiscrepancySolveRadio
+        selected={selected}
+        onToggle={() => {
+          if (selected) {
+            onToggleDiscrepancySolve(
+              paths.filter((p) => discrepancySolvePaths?.has(p)),
+            );
+          } else {
+            const hot = paths.filter((p) => isHot(p));
+            onToggleDiscrepancySolve(hot.length > 0 ? hot : paths.slice(0, 2));
+          }
+        }}
       />
     );
   }
@@ -863,8 +890,7 @@ export function GradingFormPanel({
                   : undefined
               }
             >
-              <DiscSolve path={`level2.phases.${i}.segmentationCorrect`} />
-              <DiscSolve path={`level2.phases.${i}.contentCorrect`} />
+              <PhaseDiscSolve phaseIndex={i} />
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--accent-deep)" }}>
                 AI: [{p.aiStartTime} → {p.aiEndTime}]
               </div>
@@ -1052,7 +1078,6 @@ export function GradingFormPanel({
                     }}
                   />
                 </label>
-                <DiscSolve path={`level2.phases.${i}.trueStartTime`} />
               </FieldAnchor>
               <FieldAnchor
                 id={`l2-phase-${i}-trueEnd`}
@@ -1085,7 +1110,6 @@ export function GradingFormPanel({
                     }}
                   />
                 </label>
-                <DiscSolve path={`level2.phases.${i}.trueEndTime`} />
               </FieldAnchor>
               <div style={{ marginTop: 8, fontSize: 13, color: "#334155" }}>
                 Phase temporal IoU: <strong>{phaseIoU}</strong>

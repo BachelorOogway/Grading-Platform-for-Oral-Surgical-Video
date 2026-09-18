@@ -145,55 +145,67 @@ export default function TaskGradingPage() {
     return m;
   }, [priorGraders]);
 
-  function toggleDiscSolve(path: string) {
-    void (async () => {
-      if (!task || !expertId) return;
-      const label =
-        disagreements.find((d) => d.path === path)?.label ??
-        task.openDiscrepancies?.find((d) => d.fieldPath === path)?.fieldLabel ??
-        priorFieldLabels.get(path) ??
-        describeCategoricalPath(path);
-      const turningOn = !selectedDisc.has(path);
+  function labelForPath(path: string): string {
+    return (
+      disagreements.find((d) => d.path === path)?.label ??
+      task?.openDiscrepancies?.find((d) => d.fieldPath === path)?.fieldLabel ??
+      priorFieldLabels.get(path) ??
+      describeCategoricalPath(path)
+    );
+  }
 
-      setSelectedDisc((prev) => {
-        const next = new Set(prev);
-        if (turningOn) next.add(path);
-        else next.delete(path);
-        return next;
+  async function toggleDiscSolvePaths(paths: string[]) {
+    if (!task || !expertId || paths.length === 0) return;
+    const anyOn = paths.some((p) => selectedDisc.has(p));
+    const turningOn = !anyOn;
+    const targets = turningOn
+      ? paths.filter((p) => !selectedDisc.has(p))
+      : paths.filter((p) => selectedDisc.has(p));
+    if (targets.length === 0) return;
+
+    setSelectedDisc((prev) => {
+      const next = new Set(prev);
+      for (const p of targets) {
+        if (turningOn) next.add(p);
+        else next.delete(p);
+      }
+      return next;
+    });
+
+    try {
+      const res = await fetch("/api/discrepancies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expertId,
+          videoOutputId: task.aiOutput.videoOutputId,
+          action: turningOn ? "create" : "cancel",
+          fields: targets.map((path) => ({ path, label: labelForPath(path) })),
+        }),
       });
-
-      try {
-        const res = await fetch("/api/discrepancies", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            expertId,
-            videoOutputId: task.aiOutput.videoOutputId,
-            action: turningOn ? "create" : "cancel",
-            fields: [{ path, label }],
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          alert(data?.error || "discrepancy solve 更新失败");
-          // revert
-          setSelectedDisc((prev) => {
-            const next = new Set(prev);
-            if (turningOn) next.delete(path);
-            else next.add(path);
-            return next;
-          });
-        }
-      } catch (err) {
-        alert(err instanceof Error ? err.message : String(err));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data?.error || "discrepancy solve 更新失败");
         setSelectedDisc((prev) => {
           const next = new Set(prev);
-          if (turningOn) next.delete(path);
-          else next.add(path);
+          for (const p of targets) {
+            if (turningOn) next.delete(p);
+            else next.add(p);
+          }
           return next;
         });
       }
-    })();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+      setSelectedDisc((prev) => {
+        const next = new Set(prev);
+        for (const p of targets) {
+          if (turningOn) next.delete(p);
+          else next.add(p);
+        }
+        return next;
+      });
+    }
   }
 
   useEffect(() => {
@@ -349,7 +361,15 @@ export default function TaskGradingPage() {
       highlightPaths={isTiebreaker ? highlightPaths : undefined}
       discrepancySolvePaths={isTiebreaker ? selectedDisc : undefined}
       showDiscrepancySolve={isTiebreaker && !completed}
-      onToggleDiscrepancySolve={isTiebreaker ? toggleDiscSolve : undefined}
+      onToggleDiscrepancySolve={
+        isTiebreaker
+          ? (pathOrPaths) => {
+              void toggleDiscSolvePaths(
+                Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths],
+              );
+            }
+          : undefined
+      }
     />
   );
 

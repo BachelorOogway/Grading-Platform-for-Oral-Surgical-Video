@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { parseAiOutputToParsedData } from "@/lib/aiOutputParser";
+import {
+  parseAiOutputToParsedData,
+  validateAiParsedData,
+} from "@/lib/aiOutputParser";
 import { stringifyJson } from "@/lib/json";
 import { normalizeVideoOutputId, parseVideoNumber } from "@/lib/videoId";
 import { requireAdmin } from "@/lib/adminAuth";
@@ -108,6 +111,17 @@ export async function POST(req: Request) {
     }
 
     const parsedData = parseAiOutputToParsedData(aiOutputText);
+    const validation = validateAiParsedData(parsedData);
+    if (!validation.ok) {
+      return NextResponse.json(
+        {
+          error: validation.message,
+          missingFields: validation.missing,
+          incomplete: true,
+        },
+        { status: 400 },
+      );
+    }
     const parsedDataStr = stringifyJson(parsedData);
 
     let aiOutput;
