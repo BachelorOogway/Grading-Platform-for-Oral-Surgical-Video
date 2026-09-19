@@ -25,7 +25,8 @@ export function Level5ReportView({ report }: { report: string }) {
   if (!cleaned) {
     return (
       <div className="notice notice-danger">
-        未解析到 Level 5 手术报告。请在 AI 输出末尾加入 Level 5 Analysis 及报告正文后重新上传。
+        No Level 5 operative report was parsed. Add Level 5 Analysis and the
+        report body at the end of the AI output, then upload again.
       </div>
     );
   }

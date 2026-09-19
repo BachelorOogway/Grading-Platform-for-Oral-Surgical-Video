@@ -1,6 +1,7 @@
 /**
- * Level 5 surgical-report dimensions. The set is identical for every video:
- * 5.2 procedure groups are display filters only, never a different score set.
+ * Level 5 surgical-report dimensions.
+ * 5.1, 5.3, and 5.4 are shared. 5.2 uses one procedure group per video,
+ * chosen from the AI Procedure Type (Level 1).
  */
 
 export type Level5Group =
@@ -27,136 +28,173 @@ export const LEVEL5_DIMENSIONS: Level5DimensionDef[] = [
     key: "incisionType",
     section: "5.1",
     group: "approach",
-    label: "切口类型",
-    hint: "如角形瓣",
+    label: "Incision type",
+    hint: "e.g. angular flap",
   },
   {
     key: "flapExtent",
     section: "5.1",
     group: "approach",
-    label: "翻瓣范围",
+    label: "Flap extent",
   },
   {
     key: "boneRemoval",
     section: "5.1",
     group: "approach",
-    label: "去骨量",
+    label: "Amount of bone removal",
   },
   {
     key: "rootIntegrity",
     section: "5.2",
     group: "extraction",
-    label: "牙根完整性",
-    hint: "断根 / 残留",
+    label: "Root integrity",
+    hint: "root fracture / residual root",
   },
   {
     key: "socketManagement",
     section: "5.2",
     group: "extraction",
-    label: "牙槽窝处置",
+    label: "Socket management",
   },
   {
     key: "socketBleedingBoneWall",
     section: "5.2",
     group: "extraction",
-    label: "拔牙创出血与骨壁完整性",
+    label: "Socket bleeding and bony-wall integrity",
   },
   {
     key: "implantSite",
     section: "5.2",
     group: "implant",
-    label: "植入部位",
+    label: "Implant site",
   },
   {
     key: "implantSpec",
     section: "5.2",
     group: "implant",
-    label: "种植体品牌 / 规格",
-    hint: "直径 × 长度",
+    label: "Implant brand / specification",
+    hint: "diameter × length",
   },
   {
     key: "insertionTorque",
     section: "5.2",
     group: "implant",
-    label: "植入扭矩",
+    label: "Insertion torque",
     hint: "N·cm",
   },
   {
     key: "isq",
     section: "5.2",
     group: "implant",
-    label: "ISQ 稳定性",
+    label: "ISQ stability",
   },
   {
     key: "boneQuality",
     section: "5.2",
     group: "implant",
-    label: "骨质分类",
+    label: "Bone quality",
     hint: "Type I–IV",
   },
   {
     key: "gbrSinusLift",
     section: "5.2",
     group: "implant",
-    label: "GBR / 上颌窦提升",
+    label: "GBR / sinus lift",
   },
   {
     key: "resectionExtent",
     section: "5.2",
     group: "omfs",
-    label: "病变切除范围",
+    label: "Extent of resection",
   },
   {
     key: "marginStatus",
     section: "5.2",
     group: "omfs",
-    label: "边缘状态",
+    label: "Margin status",
   },
   {
     key: "pathologySpecimen",
     section: "5.2",
     group: "omfs",
-    label: "病理标本送检",
+    label: "Pathology specimen",
   },
   {
     key: "hemostasisPacking",
     section: "5.2",
     group: "omfs",
-    label: "止血及填塞物",
-    hint: "明胶海绵 / 碘仿纱条等",
+    label: "Hemostasis and packing",
+    hint: "gelatin sponge, iodoform gauze, etc.",
   },
   {
     key: "abnormalAnatomy",
     section: "5.3",
     group: "events",
-    label: "异常解剖 / 病理",
-    hint: "神经暴露、上颌窦黏膜穿破、解剖变异",
+    label: "Abnormal anatomy / pathology",
+    hint: "nerve exposure, sinus-membrane perforation, anatomic variation",
   },
   {
     key: "unexpectedEvents",
     section: "5.3",
     group: "events",
-    label: "意外事件",
-    hint: "断根移位、邻牙损伤、异常大出血、骨板骨折、器械折断",
+    label: "Unexpected events",
+    hint: "root displacement, adjacent-tooth injury, unusual bleeding, cortical fracture, instrument breakage",
   },
   {
     key: "responseMeasures",
     section: "5.3",
     group: "events",
-    label: "应对措施",
+    label: "Management",
   },
   {
     key: "sutureClosure",
     section: "5.4",
     group: "closure",
-    label: "缝合与闭合状态",
-    hint: "缝线类型、缝合方式、创口对合程度",
+    label: "Suture and closure",
+    hint: "suture material, technique, wound approximation",
   },
 ];
 
 export const LEVEL5_DIMENSION_KEYS = LEVEL5_DIMENSIONS.map((d) => d.key);
 
 export const LEVEL5_DIMENSION_COUNT = LEVEL5_DIMENSIONS.length;
+
+export type Level5ProcedureKind = "extraction" | "implant" | "omfs";
+
+const KIND_PATTERNS: Record<Level5ProcedureKind, RegExp> = {
+  extraction: /extract|impaction|impacted|exodont|supernumerary|tooth removal/i,
+  implant: /implant|\bgbr\b|guided bone|sinus\s*lift|sinus\s*elevat|osseointegrat/i,
+  omfs: /resect|lesion|biopsy|\bcyst\b|tumou?r|patholog|enucleat/i,
+};
+
+export function level5KindLabel(kind: Level5ProcedureKind): string {
+  if (kind === "extraction") return "Extraction";
+  if (kind === "implant") return "Implant";
+  return "Oral & maxillofacial / pathology";
+}
+
+/** One video, one 5.2 block. Highest keyword score wins; ties use the first clause. */
+export function detectLevel5ProcedureKind(procedureType: string): Level5ProcedureKind {
+  const text = procedureType ?? "";
+  const score = (kind: Level5ProcedureKind) =>
+    (text.match(new RegExp(KIND_PATTERNS[kind].source, "gi")) ?? []).length;
+  const ranked = (["extraction", "implant", "omfs"] as Level5ProcedureKind[]).sort(
+    (a, b) => score(b) - score(a),
+  );
+  if (score(ranked[0]) === 0) return "extraction";
+  if (score(ranked[0]) !== score(ranked[1])) return ranked[0];
+  const first = text.split("|")[0] ?? text;
+  for (const kind of ["extraction", "implant", "omfs"] as const) {
+    if (KIND_PATTERNS[kind].test(first)) return kind;
+  }
+  return ranked[0];
+}
+
+export function level5ActiveDimensions(kind: Level5ProcedureKind) {
+  return LEVEL5_DIMENSIONS.filter(
+    (d) => d.section !== "5.2" || d.group === kind,
+  );
+}
 
 /** Headings used by the operative-report template. Order is display order. */
 export const LEVEL5_REPORT_HEADINGS: Array<{ key: string; label: string; re: RegExp }> = [
@@ -271,17 +309,24 @@ export type Level5ScoreSummary = {
   byKey: Record<string, Level5Judgement | "">;
 };
 
-/** Report score = number of dimensions judged Correct. Total is always the fixed set. */
+/** Report score = Correct items among the dimensions active for this procedure kind. */
 export function level5ScoreFromGrading(grading: unknown): Level5ScoreSummary {
   const stored = new Map<string, unknown>();
   for (const d of dimsFromGrading(grading)) {
     if (d?.key) stored.set(String(d.key), d.judgement);
   }
+  const rawKind = (grading as { level5?: { procedureKind?: unknown } } | null)
+    ?.level5?.procedureKind;
+  const kind =
+    rawKind === "extraction" || rawKind === "implant" || rawKind === "omfs"
+      ? rawKind
+      : null;
+  const defs = kind ? level5ActiveDimensions(kind) : LEVEL5_DIMENSIONS;
   const byKey: Record<string, Level5Judgement | ""> = {};
   let correctCount = 0;
   let hallucinateCount = 0;
   let missedCount = 0;
-  for (const def of LEVEL5_DIMENSIONS) {
+  for (const def of defs) {
     const j = level5JudgementOf(stored.get(def.key));
     byKey[def.key] = j ?? "";
     if (j === "correct") correctCount += 1;
@@ -295,7 +340,7 @@ export function level5ScoreFromGrading(grading: unknown): Level5ScoreSummary {
     hallucinateCount,
     missedCount,
     labeledCount,
-    total: LEVEL5_DIMENSION_COUNT,
+    total: defs.length,
     byKey,
   };
 }

@@ -28,8 +28,9 @@ import {
 import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import {
-  LEVEL5_DIMENSIONS,
-  LEVEL5_DIMENSION_COUNT,
+  detectLevel5ProcedureKind,
+  level5ActiveDimensions,
+  level5KindLabel,
   level5ScoreFromGrading,
 } from "@/lib/level5Dimensions";
 import { Level5ReportView } from "@/components/grading/Level5ReportView";
@@ -81,7 +82,7 @@ function FieldAnchor({
       }}
     >
       {children}
-      {error ? <div className="grading-error-hint">此项为必填，请填写</div> : null}
+      {error ? <div className="grading-error-hint">This field is required</div> : null}
     </div>
   );
 }
@@ -228,6 +229,7 @@ function IncorrectReasonRadios({
 
 function Level5Card({
   parsedReport,
+  procedureType,
   register,
   watch,
   completed,
@@ -236,6 +238,7 @@ function Level5Card({
   DiscSolve,
 }: {
   parsedReport: string;
+  procedureType: string;
   register: UseFormRegister<GradingForm>;
   watch: UseFormWatch<GradingForm>;
   completed?: boolean;
@@ -243,82 +246,60 @@ function Level5Card({
   isHot: (path: string) => boolean;
   DiscSolve: (props: { path: string }) => React.ReactNode;
 }) {
-  const [focus, setFocus] = useState<"all" | "extraction" | "implant" | "omfs">(
-    "all",
-  );
+  const kind = detectLevel5ProcedureKind(procedureType);
+  const active = level5ActiveDimensions(kind);
   const watched = watch("level5.dimensions");
   const score = level5ScoreFromGrading({
     level5: {
-      dimensions: LEVEL5_DIMENSIONS.map((d) => ({
+      procedureKind: kind,
+      dimensions: active.map((d) => ({
         key: d.key,
         judgement: watched?.[d.key]?.judgement,
       })),
     },
   });
 
-  const groups: Array<{
-    id: string;
-    title: string;
-    cue: string;
-    items: typeof LEVEL5_DIMENSIONS;
-  }> = [
+  const groups = [
     {
       id: "approach",
-      title: "5.1 入路与术式",
-      cue: "对照 Step-by-Step Narrative",
-      items: LEVEL5_DIMENSIONS.filter((d) => d.group === "approach"),
+      title: "5.1 Approach and procedure",
+      cue: "Check against Step-by-Step Narrative",
+      items: active.filter((d) => d.group === "approach"),
     },
     {
       id: "outcomes",
-      title: "5.2 关键临床结果与定量数据",
-      cue: "对照 Surgical Findings 与 Step-by-Step Narrative",
-      items: LEVEL5_DIMENSIONS.filter((d) => d.section === "5.2").filter((d) =>
-        focus === "all" ? true : d.group === focus,
-      ),
+      title: "5.2 Key clinical results and quantitative data",
+      cue: "Check against Surgical Findings and Step-by-Step Narrative",
+      items: active.filter((d) => d.section === "5.2"),
     },
     {
       id: "events",
-      title: "5.3 术中特殊事件与并发症",
-      cue: "对照 Surgical Findings 与 Complications / Estimated Blood Loss",
-      items: LEVEL5_DIMENSIONS.filter((d) => d.group === "events"),
+      title: "5.3 Intraoperative events and complications",
+      cue: "Check against Surgical Findings and Complications / Estimated Blood Loss",
+      items: active.filter((d) => d.group === "events"),
     },
     {
       id: "closure",
-      title: "5.4 闭合与最终状态",
-      cue: "对照 Step-by-Step Narrative 末段与 Anesthesia / Hemostasis",
-      items: LEVEL5_DIMENSIONS.filter((d) => d.group === "closure"),
+      title: "5.4 Closure and final status",
+      cue: "Check against the end of Step-by-Step Narrative and Anesthesia / Hemostasis",
+      items: active.filter((d) => d.group === "closure"),
     },
-  ];
+  ].filter((g) => g.items.length > 0);
 
   return (
     <div className="grading-card" id={gradingFieldDomId("l5-report")}>
       <div className="grading-card-title">Level 5 — Operative Report</div>
       <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
-        先读 AI 手术报告（已去掉文末专家评价占位）。再对固定 {LEVEL5_DIMENSION_COUNT}{" "}
-        项逐一判定。Correct 含真阴性。Report Score = Correct 项数 / {LEVEL5_DIMENSION_COUNT}。
-        5.2 的术式切换只改变显示，每条视频都要评完全部维度。
+        Read the AI operative report first (the trailing expert-evaluation stub
+        is removed). Score only the fields for this video&apos;s procedure
+        type. Correct includes true negatives. Report score = number of Correct
+        items / {score.total}.
+      </p>
+      <p className="muted" style={{ fontSize: 13, marginTop: -4, marginBottom: 12 }}>
+        AI procedure type: {procedureType.trim() || "—"} · 5.2 form:{" "}
+        {level5KindLabel(kind)}
       </p>
       <Level5ReportView report={parsedReport} />
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0" }}>
-        {(
-          [
-            ["all", "5.2 全部"],
-            ["extraction", "拔牙类"],
-            ["implant", "种植类"],
-            ["omfs", "颌面 / 病理"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={focus === id ? "btn btn-primary" : "btn btn-ghost"}
-            onClick={() => setFocus(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
 
       {groups.map((g) => (
         <div key={g.id} style={{ marginTop: 8 }}>
@@ -381,7 +362,7 @@ function Level5Card({
       ))}
 
       <div className="grading-metrics" style={{ marginTop: 8 }}>
-        手术报告分数：<strong>{score.reportScore}</strong>
+        Report score: <strong>{score.reportScore}</strong>
         <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
           / {score.total}
         </span>
@@ -588,7 +569,7 @@ export function GradingFormPanel({
     !completed && showErrors && incompleteFields.length > 0 ? (
       <div className="notice notice-danger" style={{ borderWidth: 2, borderColor: "#e11d48" }}>
         <div style={{ fontWeight: 700, marginBottom: 6, color: "#be123c" }}>
-          还有 {incompleteFields.length} 项未填写（已用红色标出）— 点击可跳转
+          {incompleteFields.length} field{incompleteFields.length === 1 ? "" : "s"} still missing (marked in red) — click to jump
         </div>
         <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 180, overflow: "auto" }}>
           {incompleteFields.map((m) => (
@@ -1651,8 +1632,9 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           Level 4 — Skills Evaluation & Grounding Test
         </div>
         <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
-          请根据手术视频独立打分（1–5）。量表锚点见各维度下方；请勿参考 AI
-          分数。若认为该维度相关描述存在幻觉，勾选 Hallucination = Yes。
+          Score from the surgical video on your own (1–5). Scale anchors are
+          under each dimension; do not use the AI score. If the description for
+          that dimension is a hallucination, set Hallucination = Yes.
         </p>
         {LEVEL4_DIMENSIONS.map((d) => {
           const base = `level4.dimensions.${d.key}`;
@@ -1780,6 +1762,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
 
       <Level5Card
         parsedReport={parsed.level5?.report ?? ""}
+        procedureType={parsed.level1?.procedureType ?? ""}
         register={register}
         watch={watch}
         completed={completed}
@@ -1798,12 +1781,12 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         style={{ marginTop: 4 }}
       >
         {completed
-          ? "已完成"
+          ? "Completed"
           : submitting
-            ? "提交中..."
+            ? "Submitting…"
             : !isValid
-              ? "提交评分（检查未填项）"
-              : "提交评分"}
+              ? "Submit (check missing fields)"
+              : "Submit"}
       </button>
       ) : null}
     </form>

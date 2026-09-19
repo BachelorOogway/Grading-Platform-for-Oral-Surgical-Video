@@ -152,7 +152,7 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
       </section>
 
       <section>
-        <h4>Level 5 — 手术报告</h4>
+        <h4>Level 5 — Operative Report</h4>
         <Row
           label="Report score (Correct count)"
           value={
@@ -168,7 +168,7 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
           </div>
         ) : null}
         {l5Dims.length === 0 ? (
-          <div className="muted">无 Level 5 判定</div>
+          <div className="muted">No Level 5 judgements</div>
         ) : (
           <ul className="admin-form-list">
             {l5Dims.map((d) => (

@@ -11,9 +11,11 @@ import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import {
   LEVEL5_DIMENSIONS,
   isLevel5JudgementPath,
+  level5ActiveDimensions,
+  level5LabelForKey,
   level5JudgementLabel,
   level5JudgementOf,
-  level5LabelForKey,
+  type Level5ProcedureKind,
 } from "@/lib/level5Dimensions";
 
 export type CategoricalField = {
@@ -254,7 +256,13 @@ export function extractCategoricalFields(grading: any): CategoricalField[] {
     );
   }
 
-  for (const def of LEVEL5_DIMENSIONS) {
+  const rawKind = grading?.level5?.procedureKind;
+  const kind: Level5ProcedureKind | null =
+    rawKind === "extraction" || rawKind === "implant" || rawKind === "omfs"
+      ? rawKind
+      : null;
+  const l5Defs = kind ? level5ActiveDimensions(kind) : LEVEL5_DIMENSIONS;
+  for (const def of l5Defs) {
     const dims = grading?.level5?.dimensions;
     let raw: unknown = null;
     if (Array.isArray(dims)) {

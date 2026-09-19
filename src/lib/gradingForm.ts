@@ -5,8 +5,9 @@ import {
   level4LabelForKey,
 } from "./level4Dimensions";
 import {
-  LEVEL5_DIMENSIONS,
   LEVEL5_DIMENSION_KEYS,
+  detectLevel5ProcedureKind,
+  level5ActiveDimensions,
   level5LabelForKey,
   level5ScoreFromGrading,
   type Level5Judgement,
@@ -504,16 +505,24 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       })(),
     },
     level5: (() => {
-      const dimensions = LEVEL5_DIMENSIONS.map((def) => ({
+      const procedureKind = detectLevel5ProcedureKind(
+        parsed.level1?.procedureType ?? "",
+      );
+      const active = level5ActiveDimensions(procedureKind);
+      const dimensions = active.map((def) => ({
         key: def.key,
         label: def.label,
         section: def.section,
         group: def.group,
         judgement: values.level5?.dimensions?.[def.key]?.judgement || "",
       }));
-      const score = level5ScoreFromGrading({ level5: { dimensions } });
+      const score = level5ScoreFromGrading({
+        level5: { procedureKind, dimensions },
+      });
       return {
         report: parsed.level5?.report ?? "",
+        procedureKind,
+        procedureType: parsed.level1?.procedureType ?? "",
         dimensions,
         reportScore: score.reportScore,
         dimensionTotal: score.total,
@@ -812,7 +821,7 @@ export function getGradingIncompleteFields(
 ): IncompleteField[] {
   const missing: IncompleteField[] = [];
   if (!values?.level1 || !values?.level2 || !values?.level3 || !values?.level4 || !values?.level5) {
-    return [{ id: "form-root", message: "表单尚未加载完成" }];
+    return [{ id: "form-root", message: "The form is still loading" }];
   }
 
   const l1 = values.level1;
@@ -1011,7 +1020,10 @@ export function getGradingIncompleteFields(
       message: "Level 5: surgical report missing (re-upload AI output)",
     });
   }
-  for (const def of LEVEL5_DIMENSIONS) {
+  const procedureKind = detectLevel5ProcedureKind(
+    parsed.level1?.procedureType ?? "",
+  );
+  for (const def of level5ActiveDimensions(procedureKind)) {
     const j = values.level5.dimensions?.[def.key]?.judgement;
     if (j !== "correct" && j !== "hallucinate" && j !== "missed") {
       missing.push({
