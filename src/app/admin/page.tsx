@@ -13,10 +13,8 @@ import { normalizeVideoOutputId } from "@/lib/videoId";
 type NumericRange = { start: number; end: number };
 
 type ConfigForm = {
-  ex1Start: number;
-  ex1End: number;
-  ex2Start: number;
-  ex2End: number;
+  rangeStart: number;
+  rangeEnd: number;
 };
 
 type UploadForm = {
@@ -158,10 +156,8 @@ export default function AdminPage() {
     reset: resetConfig,
   } = useForm<ConfigForm>({
     defaultValues: {
-      ex1Start: 1,
-      ex1End: 100,
-      ex2Start: 101,
-      ex2End: 200,
+      rangeStart: 1,
+      rangeEnd: 200,
     },
   });
 
@@ -239,11 +235,11 @@ export default function AdminPage() {
       .then((r) => r.json())
       .then((data) => {
         const ex = (data.exclusiveRanges ?? []) as NumericRange[];
+        const starts = ex.map((r) => r.start).filter((n) => Number.isFinite(n));
+        const ends = ex.map((r) => r.end).filter((n) => Number.isFinite(n));
         resetConfig({
-          ex1Start: ex[0]?.start ?? 1,
-          ex1End: ex[0]?.end ?? 100,
-          ex2Start: ex[1]?.start ?? 101,
-          ex2End: ex[1]?.end ?? 200,
+          rangeStart: starts.length ? Math.min(...starts) : 1,
+          rangeEnd: ends.length ? Math.max(...ends) : 200,
         });
       })
       .catch(() => {});
@@ -479,8 +475,7 @@ export default function AdminPage() {
     setConfigInfo(null);
     try {
       const exclusiveRanges: NumericRange[] = [
-        { start: Number(values.ex1Start), end: Number(values.ex1End) },
-        { start: Number(values.ex2Start), end: Number(values.ex2End) },
+        { start: Number(values.rangeStart), end: Number(values.rangeEnd) },
       ];
       const res = await fetch("/api/admin/assignment-config", {
         method: "PUT",
@@ -691,22 +686,17 @@ export default function AdminPage() {
         <section className="section-block">
           <h2 className="section-title">任务区间配置</h2>
           <p className="page-lead" style={{ marginBottom: 14 }}>
-            可认领视频编号区间（从 <code>videoOutputId</code> 解析，如 V01 → 1）。
-            每个视频最多 3 位专家认领/评分；ICC 基于所有已有 ≥2 位专家 Level4 打分的视频计算。
+            一段连续的可认领视频编号（从 <code>videoOutputId</code> 解析，如 V01 → 1）。
+            每个视频最多 3 位专家认领/评分。
           </p>
 
           <form onSubmit={handleConfigSubmit(onSaveConfig)} style={{ display: "grid", gap: 12 }}>
             <fieldset className="grading-sub" style={{ margin: 0 }}>
               <legend>可认领区间</legend>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <span>段1</span>
-                <input type="number" {...registerConfig("ex1Start", { valueAsNumber: true })} style={numInput} />
+                <input type="number" {...registerConfig("rangeStart", { valueAsNumber: true })} style={numInput} />
                 <span>—</span>
-                <input type="number" {...registerConfig("ex1End", { valueAsNumber: true })} style={numInput} />
-                <span style={{ marginLeft: 12 }}>段2</span>
-                <input type="number" {...registerConfig("ex2Start", { valueAsNumber: true })} style={numInput} />
-                <span>—</span>
-                <input type="number" {...registerConfig("ex2End", { valueAsNumber: true })} style={numInput} />
+                <input type="number" {...registerConfig("rangeEnd", { valueAsNumber: true })} style={numInput} />
               </div>
             </fieldset>
 
