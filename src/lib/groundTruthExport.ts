@@ -1,6 +1,10 @@
 import { parseJsonSafe } from "@/lib/json";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import {
+  LEVEL5_DIMENSIONS,
+  level5ScoreFromGrading,
+} from "@/lib/level5Dimensions";
+import {
   getCategoricalRaw,
   mergeMissedInstrumentNames,
   missedInstrumentCountOf,
@@ -458,6 +462,12 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     "safety_check_pass",
     ...l4Headers,
     "l4_hallucination_rate",
+    "l5_report",
+    "l5_report_score",
+    "l5_dimension_total",
+    "l5_hallucinate_count",
+    "l5_missed_count",
+    ...LEVEL5_DIMENSIONS.map((d) => `l5_${d.key}_judgement`),
   ];
 
   const lines = [headers.map(csvEscape).join(",")];
@@ -592,6 +602,8 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
 
     const hallRate =
       typeof l4.hallucinationRate === "number" ? l4.hallucinationRate : "";
+    const l5 = level5ScoreFromGrading(gd);
+    const l5gd = gd.level5 ?? {};
 
     lines.push(
       [
@@ -646,6 +658,12 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
             : "",
         ...l4Cols,
         hallRate,
+        String(l5gd.report || parsed.level5?.report || ""),
+        l5.reportScore,
+        l5.total,
+        l5.hallucinateCount,
+        l5.missedCount,
+        ...LEVEL5_DIMENSIONS.map((d) => l5.byKey[d.key] || ""),
       ]
         .map(csvEscape)
         .join(","),

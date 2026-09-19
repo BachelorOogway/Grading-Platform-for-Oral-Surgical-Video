@@ -69,6 +69,11 @@ export function normalizeAiParsedData(
           ? stored.level4!.dimensions!
           : parsed.level4.dimensions,
     },
+    level5: {
+      report: stored.level5?.report?.trim()
+        ? stored.level5.report
+        : parsed.level5.report,
+    },
   };
 }
 

@@ -81,6 +81,7 @@ const EMPTY_PARSED: AiParsedData = {
   },
   level3: { nextActionPrediction: "", clinicalRationale: "", surgeryCompleted: null },
   level4: { dimensions: [] },
+  level5: { report: "" },
 };
 
 export default function TaskGradingPage() {
@@ -394,7 +395,7 @@ export default function TaskGradingPage() {
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
                   ? "三位评分表并排对照。前两位（本轮先提交的两位）答案不同的题会以粉色标出；只有你作为本轮第三位打分者可以点 discrepancy solve。点选后三位评分者的 Dashboard 会立即显示该题。Level 2 起止时间若任意两人相差超过 3 秒会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
-                  : "填写会自动保存在本机。Level 1–3 可对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。重评或重新上传 AI 后，本轮前两位提交者先独立打分；第三人打分时才会出现三表对照与 discrepancy solve。"}
+                  : "填写会自动保存在本机。Level 1–3 与 Level 5 对照 AI 输出评分；Level 4 不展示 AI 分数，请独立判断。Level 5 每个视频的判定维度相同，报告分数为 Correct 项合计。重评或重新上传 AI 后，本轮前两位提交者先独立打分；第三人打分时才会出现三表对照与 discrepancy solve。"}
             </p>
           </div>
           <button

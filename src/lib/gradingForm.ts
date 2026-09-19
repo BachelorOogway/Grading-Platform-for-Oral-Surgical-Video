@@ -5,6 +5,13 @@ import {
   level4LabelForKey,
 } from "./level4Dimensions";
 import {
+  LEVEL5_DIMENSIONS,
+  LEVEL5_DIMENSION_KEYS,
+  level5LabelForKey,
+  level5ScoreFromGrading,
+  type Level5Judgement,
+} from "./level5Dimensions";
+import {
   computeLevel2ContentMetrics,
   computeLevel2TemporalMetrics,
   temporalIoU,
@@ -84,12 +91,19 @@ export type Level4DimensionForm = {
   aiJustificationHallucination: "yes" | "no" | "";
 };
 
+export type Level5DimensionForm = {
+  judgement: Level5Judgement | "";
+};
+
 export type GradingForm = {
   level1: Level1Form;
   level2: Level2Form;
   level3: Level3Form;
   level4: {
     dimensions: Record<string, Level4DimensionForm>;
+  };
+  level5: {
+    dimensions: Record<string, Level5DimensionForm>;
   };
 };
 
@@ -150,6 +164,11 @@ export function buildDefaultGradingForm(parsed: AiParsedData): GradingForm {
       hallucinationNotes: "N/A",
     },
     level4: { dimensions: l4Dims },
+    level5: {
+      dimensions: Object.fromEntries(
+        LEVEL5_DIMENSION_KEYS.map((key) => [key, { judgement: "" as const }]),
+      ),
+    },
   };
 }
 
@@ -484,6 +503,24 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
         };
       })(),
     },
+    level5: (() => {
+      const dimensions = LEVEL5_DIMENSIONS.map((def) => ({
+        key: def.key,
+        label: def.label,
+        section: def.section,
+        group: def.group,
+        judgement: values.level5?.dimensions?.[def.key]?.judgement || "",
+      }));
+      const score = level5ScoreFromGrading({ level5: { dimensions } });
+      return {
+        report: parsed.level5?.report ?? "",
+        dimensions,
+        reportScore: score.reportScore,
+        dimensionTotal: score.total,
+        hallucinateCount: score.hallucinateCount,
+        missedCount: score.missedCount,
+      };
+    })(),
   };
 }
 
@@ -694,6 +731,28 @@ export function hydrateGradingForm(
         }),
       ),
     },
+    level5: {
+      dimensions: Object.fromEntries(
+        LEVEL5_DIMENSION_KEYS.map((key) => {
+          const savedL5 = saved.level5 ?? {};
+          const savedL5Dims: any[] = Array.isArray(savedL5.dimensions)
+            ? savedL5.dimensions
+            : [];
+          const savedL5Rec =
+            savedL5.dimensions && !Array.isArray(savedL5.dimensions)
+              ? savedL5.dimensions
+              : null;
+          const fromArr = savedL5Dims.find((d) => d?.key === key);
+          const fromRec = savedL5Rec?.[key];
+          const raw = fromArr?.judgement ?? fromRec?.judgement;
+          const judgement =
+            raw === "correct" || raw === "hallucinate" || raw === "missed"
+              ? raw
+              : "";
+          return [key, { judgement }];
+        }),
+      ),
+    },
   };
 }
 
@@ -752,7 +811,7 @@ export function getGradingIncompleteFields(
   parsed: AiParsedData,
 ): IncompleteField[] {
   const missing: IncompleteField[] = [];
-  if (!values?.level1 || !values?.level2 || !values?.level3 || !values?.level4) {
+  if (!values?.level1 || !values?.level2 || !values?.level3 || !values?.level4 || !values?.level5) {
     return [{ id: "form-root", message: "表单尚未加载完成" }];
   }
 
@@ -942,6 +1001,22 @@ export function getGradingIncompleteFields(
       missing.push({
         id: `l4-${key}-hallucination`,
         message: `Level 4: ${label} hallucination`,
+      });
+    }
+  }
+
+  if (!String(parsed.level5?.report ?? "").trim()) {
+    missing.push({
+      id: "l5-report",
+      message: "Level 5: surgical report missing (re-upload AI output)",
+    });
+  }
+  for (const def of LEVEL5_DIMENSIONS) {
+    const j = values.level5.dimensions?.[def.key]?.judgement;
+    if (j !== "correct" && j !== "hallucinate" && j !== "missed") {
+      missing.push({
+        id: `l5-${def.key}`,
+        message: `Level 5: ${level5LabelForKey(def.key)}`,
       });
     }
   }

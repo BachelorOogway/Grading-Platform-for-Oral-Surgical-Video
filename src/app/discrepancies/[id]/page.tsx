@@ -93,6 +93,7 @@ const EMPTY_PARSED: AiParsedData = {
   },
   level3: { nextActionPrediction: "", clinicalRationale: "", surgeryCompleted: null },
   level4: { dimensions: [] },
+  level5: { report: "" },
 };
 
 function readFormPath(values: GradingForm, path: string): unknown {

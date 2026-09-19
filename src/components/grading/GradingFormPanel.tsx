@@ -27,6 +27,12 @@ import {
 } from "@/lib/gradingForm";
 import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
+import {
+  LEVEL5_DIMENSIONS,
+  LEVEL5_DIMENSION_COUNT,
+  level5ScoreFromGrading,
+} from "@/lib/level5Dimensions";
+import { Level5ReportView } from "@/components/grading/Level5ReportView";
 import { MissedItemsField } from "@/components/grading/MissedItemsField";
 
 const FormDomPrefixContext = createContext("");
@@ -216,6 +222,170 @@ function IncorrectReasonRadios({
         />
         <span>misrecognition when the target is present</span>
       </label>
+    </div>
+  );
+}
+
+function Level5Card({
+  parsedReport,
+  register,
+  watch,
+  completed,
+  hasError,
+  isHot,
+  DiscSolve,
+}: {
+  parsedReport: string;
+  register: UseFormRegister<GradingForm>;
+  watch: UseFormWatch<GradingForm>;
+  completed?: boolean;
+  hasError: (id: string) => boolean;
+  isHot: (path: string) => boolean;
+  DiscSolve: (props: { path: string }) => React.ReactNode;
+}) {
+  const [focus, setFocus] = useState<"all" | "extraction" | "implant" | "omfs">(
+    "all",
+  );
+  const watched = watch("level5.dimensions");
+  const score = level5ScoreFromGrading({
+    level5: {
+      dimensions: LEVEL5_DIMENSIONS.map((d) => ({
+        key: d.key,
+        judgement: watched?.[d.key]?.judgement,
+      })),
+    },
+  });
+
+  const groups: Array<{
+    id: string;
+    title: string;
+    cue: string;
+    items: typeof LEVEL5_DIMENSIONS;
+  }> = [
+    {
+      id: "approach",
+      title: "5.1 入路与术式",
+      cue: "对照 Step-by-Step Narrative",
+      items: LEVEL5_DIMENSIONS.filter((d) => d.group === "approach"),
+    },
+    {
+      id: "outcomes",
+      title: "5.2 关键临床结果与定量数据",
+      cue: "对照 Surgical Findings 与 Step-by-Step Narrative",
+      items: LEVEL5_DIMENSIONS.filter((d) => d.section === "5.2").filter((d) =>
+        focus === "all" ? true : d.group === focus,
+      ),
+    },
+    {
+      id: "events",
+      title: "5.3 术中特殊事件与并发症",
+      cue: "对照 Surgical Findings 与 Complications / Estimated Blood Loss",
+      items: LEVEL5_DIMENSIONS.filter((d) => d.group === "events"),
+    },
+    {
+      id: "closure",
+      title: "5.4 闭合与最终状态",
+      cue: "对照 Step-by-Step Narrative 末段与 Anesthesia / Hemostasis",
+      items: LEVEL5_DIMENSIONS.filter((d) => d.group === "closure"),
+    },
+  ];
+
+  return (
+    <div className="grading-card" id={gradingFieldDomId("l5-report")}>
+      <div className="grading-card-title">Level 5 — Operative Report</div>
+      <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
+        先读 AI 手术报告（已去掉文末专家评价占位）。再对固定 {LEVEL5_DIMENSION_COUNT}{" "}
+        项逐一判定。Correct 含真阴性。Report Score = Correct 项数 / {LEVEL5_DIMENSION_COUNT}。
+        5.2 的术式切换只改变显示，每条视频都要评完全部维度。
+      </p>
+      <Level5ReportView report={parsedReport} />
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0" }}>
+        {(
+          [
+            ["all", "5.2 全部"],
+            ["extraction", "拔牙类"],
+            ["implant", "种植类"],
+            ["omfs", "颌面 / 病理"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={focus === id ? "btn btn-primary" : "btn btn-ghost"}
+            onClick={() => setFocus(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {groups.map((g) => (
+        <div key={g.id} style={{ marginTop: 8 }}>
+          <div style={{ fontWeight: 700, margin: "8px 0 2px" }}>{g.title}</div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            {g.cue}
+          </div>
+          {g.items.map((d) => {
+            const path = `level5.dimensions.${d.key}.judgement`;
+            const err = hasError(`l5-${d.key}`);
+            return (
+              <FieldAnchor
+                key={d.key}
+                id={`l5-${d.key}`}
+                error={err}
+                highlight={isHot(path)}
+                style={{ marginBottom: 8, padding: 8 }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div>
+                    <strong>{d.label}</strong>
+                    {d.hint ? (
+                      <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                        {d.hint}
+                      </span>
+                    ) : null}
+                  </div>
+                  <DiscSolve path={path} />
+                </div>
+                <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                  {(
+                    [
+                      ["correct", "Correct (including true negative)"],
+                      [
+                        "hallucinate",
+                        "Not Mentioned but Hallucinate (not in the video, but written in the report)",
+                      ],
+                      [
+                        "missed",
+                        "Mentioned but Missed (in the video, but not written in the report)",
+                      ],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <label key={value} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13 }}>
+                      <input
+                        type="radio"
+                        value={value}
+                        {...register(path as any, { required: true })}
+                        disabled={completed}
+                        style={{ marginTop: 2 }}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </FieldAnchor>
+            );
+          })}
+        </div>
+      ))}
+
+      <div className="grading-metrics" style={{ marginTop: 8 }}>
+        手术报告分数：<strong>{score.reportScore}</strong>
+        <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+          / {score.total}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1607,6 +1777,16 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
           );
         })()}
       </div>
+
+      <Level5Card
+        parsedReport={parsed.level5?.report ?? ""}
+        register={register}
+        watch={watch}
+        completed={completed}
+        hasError={hasError}
+        isHot={isHot}
+        DiscSolve={DiscSolve}
+      />
 
       {incompleteBanner}
 

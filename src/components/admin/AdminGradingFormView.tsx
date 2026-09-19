@@ -7,6 +7,8 @@ function yn(v: unknown): string {
   if (v === false || v === "incorrect" || v === "no" || v === "No") return "Incorrect / No";
   if (v === "pass" || v === "Pass") return "Pass";
   if (v === "fail" || v === "Fail") return "Fail";
+  if (v === "hallucinate") return "Not Mentioned but Hallucinate";
+  if (v === "missed") return "Mentioned but Missed";
   if (v == null || v === "") return "—";
   return String(v);
 }
@@ -29,10 +31,12 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
   const l2 = gradingData.level2 ?? {};
   const l3 = gradingData.level3 ?? {};
   const l4 = gradingData.level4 ?? {};
+  const l5 = gradingData.level5 ?? {};
   const structures: any[] = Array.isArray(l1.structures) ? l1.structures : [];
   const instruments: any[] = Array.isArray(l1.instruments) ? l1.instruments : [];
   const phases: any[] = Array.isArray(l2.phases) ? l2.phases : [];
   const dimensions: any[] = Array.isArray(l4.dimensions) ? l4.dimensions : [];
+  const l5Dims: any[] = Array.isArray(l5.dimensions) ? l5.dimensions : [];
 
   return (
     <div className="admin-form-view">
@@ -137,13 +141,39 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
                 {d.expertScore ?? "—"} · hallucination{" "}
                 {yn(d.aiJustificationHallucination)}
                 {d.aiJustification ? (
-                  <>
-                    <br />
-                    <span className="muted" style={{ fontSize: 12 }}>
-                      AI note: {d.aiJustification}
-                    </span>
-                  </>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    {d.aiJustification}
+                  </div>
                 ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h4>Level 5 — 手术报告</h4>
+        <Row
+          label="Report score (Correct count)"
+          value={
+            l5.reportScore != null
+              ? `${l5.reportScore} / ${l5.dimensionTotal ?? l5Dims.length}`
+              : "—"
+          }
+        />
+        {l5.report ? (
+          <div className="muted" style={{ whiteSpace: "pre-wrap", marginBottom: 8 }}>
+            {String(l5.report).slice(0, 800)}
+            {String(l5.report).length > 800 ? "…" : ""}
+          </div>
+        ) : null}
+        {l5Dims.length === 0 ? (
+          <div className="muted">无 Level 5 判定</div>
+        ) : (
+          <ul className="admin-form-list">
+            {l5Dims.map((d) => (
+              <li key={d.key || d.label}>
+                {d.label || d.key}: {yn(d.judgement)}
               </li>
             ))}
           </ul>

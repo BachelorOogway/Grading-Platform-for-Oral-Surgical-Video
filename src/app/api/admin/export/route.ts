@@ -12,6 +12,10 @@ import {
 } from "@/lib/level3Metrics";
 import { level4HallucinationFromGradingData } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
+import {
+  LEVEL5_DIMENSIONS,
+  level5ScoreFromGrading,
+} from "@/lib/level5Dimensions";
 import { requireAdmin } from "@/lib/adminAuth";
 
 function csvEscape(value: unknown) {
@@ -361,6 +365,11 @@ export async function GET(req: Request) {
       `l4_${d.key}_expert_score`,
       `l4_${d.key}_hallucination`,
     ]),
+    "l5_report_score",
+    "l5_dimension_total",
+    "l5_hallucinate_count",
+    "l5_missed_count",
+    ...LEVEL5_DIMENSIONS.map((d) => `l5_${d.key}_judgement`),
   ];
 
   const lines: string[] = [
@@ -529,6 +538,16 @@ export async function GET(req: Request) {
       l4hall?.totalCount ?? "",
       l4hall?.rate ?? "",
       ...l4ScoreCols,
+      ...(() => {
+        const l5 = level5ScoreFromGrading(gd);
+        return [
+          l5.reportScore,
+          l5.total,
+          l5.hallucinateCount,
+          l5.missedCount,
+          ...LEVEL5_DIMENSIONS.map((d) => l5.byKey[d.key] || ""),
+        ];
+      })(),
     ];
 
     lines.push(row.map(csvEscape).join(","));

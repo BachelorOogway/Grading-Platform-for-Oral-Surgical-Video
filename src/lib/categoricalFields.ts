@@ -8,6 +8,13 @@
  * is no silent 2:1 majority for these fields.
  */
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
+import {
+  LEVEL5_DIMENSIONS,
+  isLevel5JudgementPath,
+  level5JudgementLabel,
+  level5JudgementOf,
+  level5LabelForKey,
+} from "@/lib/level5Dimensions";
 
 export type CategoricalField = {
   path: string;
@@ -115,6 +122,8 @@ function displayValue(path: string, raw: unknown): string {
   if (raw === "fail") return "Fail";
   if (raw === "correct") return "Correct";
   if (raw === "incorrect") return "Incorrect";
+  if (raw === "hallucinate") return "Not Mentioned but Hallucinate";
+  if (raw === "missed") return "Mentioned but Missed";
   return String(raw ?? "—");
 }
 
@@ -245,6 +254,21 @@ export function extractCategoricalFields(grading: any): CategoricalField[] {
     );
   }
 
+  for (const def of LEVEL5_DIMENSIONS) {
+    const dims = grading?.level5?.dimensions;
+    let raw: unknown = null;
+    if (Array.isArray(dims)) {
+      raw = dims.find((d) => d?.key === def.key)?.judgement;
+    } else if (dims && typeof dims === "object") {
+      raw = (dims as Record<string, { judgement?: unknown }>)[def.key]?.judgement;
+    }
+    push(
+      `level5.dimensions.${def.key}.judgement`,
+      `L5 ${def.section} ${def.label}`,
+      raw,
+    );
+  }
+
   return out;
 }
 
@@ -290,6 +314,9 @@ export function describeCategoricalPath(path: string): string {
       LEVEL4_DIMENSIONS.find((d) => d.key === l4[1])?.label ?? l4[1];
     return `L4 ${label} hallucination`;
   }
+
+  const l5 = /^level5\.dimensions\.([^.]+)\.judgement$/.exec(path);
+  if (l5) return `L5 ${level5LabelForKey(l5[1])}`;
 
   const list = /^level1\.(structures|instruments)\.(\d+)\.(.+)$/.exec(path);
   if (list) {
@@ -343,6 +370,9 @@ function normToken(raw: unknown): string | null {
 
 /** Compare token that unifies yes/no with boolean for hallucination & surgery. */
 export function compareTokenForPath(path: string, raw: unknown): string | null {
+  if (isLevel5JudgementPath(path)) {
+    return level5JudgementOf(raw);
+  }
   if (isYesNoPath(path)) {
     if (raw === true || raw === "yes" || raw === "Yes") return "yes";
     if (raw === false || raw === "no" || raw === "No") return "no";
@@ -508,6 +538,13 @@ export function majorityOfThree(
 export function getDiscrepancyChoices(
   fieldPath: string,
 ): Array<{ value: string; label: string }> {
+  if (isLevel5JudgementPath(fieldPath)) {
+    return [
+      { value: "correct", label: level5JudgementLabel("correct") },
+      { value: "hallucinate", label: level5JudgementLabel("hallucinate") },
+      { value: "missed", label: level5JudgementLabel("missed") },
+    ];
+  }
   if (isYesNoPath(fieldPath)) {
     return [
       { value: "yes", label: "Yes" },

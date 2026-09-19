@@ -43,6 +43,10 @@ export type AiParsedData = {
   level4: {
     dimensions: AiLevel4Dimension[];
   };
+  /** Free-form surgical report (markdown). Same expert dimensions for every video. */
+  level5: {
+    report: string;
+  };
 };
 
 function safeTrim(s: string) {
@@ -328,7 +332,9 @@ function parseLevel3(text: string): AiParsedData["level3"] {
  *   [Human Expert Evaluation ...]   (optional)
  */
 function parseLevel4(text: string): AiParsedData["level4"] {
-  const sectionMatch = text.match(/Level\s*4\s*Analysis[\s\S]*$/i);
+  const sectionMatch = text.match(
+    /Level\s*4\s*Analysis[\s\S]*?(?=Level\s*5\b|$)/i,
+  );
   const section = sectionMatch?.[0] ?? "";
 
   // Anchor each "Label: score -" on a single line (labels never span newlines).
@@ -390,6 +396,12 @@ function parseLevel4(text: string): AiParsedData["level4"] {
   return { dimensions };
 }
 
+function parseLevel5(text: string): AiParsedData["level5"] {
+  const m = /Level\s*5\b[^\n]*\r?\n?([\s\S]*)$/i.exec(text ?? "");
+  const body = (m?.[1] ?? "").split(/\[Human\s+Expert\s+Evaluation/i)[0].trim();
+  return { report: body };
+}
+
 export function parseAiOutputToParsedData(inputText: string): AiParsedData {
   const text = inputText ?? "";
   return {
@@ -397,6 +409,7 @@ export function parseAiOutputToParsedData(inputText: string): AiParsedData {
     level2: parseLevel2(text),
     level3: parseLevel3(text),
     level4: parseLevel4(text),
+    level5: parseLevel5(text),
   };
 }
 
@@ -493,6 +506,12 @@ export function validateAiParsedData(parsed: AiParsedData): AiParseValidation {
     missing,
     "Level 3 Clinical Rationale",
     Boolean(l3.clinicalRationale?.trim()),
+  );
+
+  pushMissing(
+    missing,
+    "Level 5 surgical report (text after a Level 5 heading)",
+    Boolean(parsed.level5?.report?.trim()),
   );
 
   const dims = Array.isArray(l4.dimensions) ? l4.dimensions : [];
