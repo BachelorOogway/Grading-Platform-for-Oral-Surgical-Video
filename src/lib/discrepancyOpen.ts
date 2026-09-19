@@ -8,7 +8,6 @@ import {
   compareTokenForPath,
   findCategoricalDisagreements,
   getCategoricalRaw,
-  isAutoDiscrepancyPath,
 } from "@/lib/categoricalFields";
 import {
   findTimingBoundDiscrepancies,
@@ -165,8 +164,12 @@ export async function syncTimingDiscrepancies(
 }
 
 /**
- * Level 4 hallucination + missed-instrument count: any pairwise disagreement
- * among the given gradings opens a discrepancy (no 2:1 majority).
+ * Absolute agreement for every categorical button field (Correct/Incorrect,
+ * Yes/No, Pass/Fail, hallucination, missed-instrument count, phase error
+ * type, …). Level 4 expertScore is not extracted, so it never appears here.
+ *
+ * Any pairwise disagreement among the given completed gradings opens a
+ * discrepancy — there is no silent 2:1 majority.
  */
 export function autoOpenDisagreements(
   ...gradings: unknown[]
@@ -177,7 +180,7 @@ export function autoOpenDisagreements(
   for (let i = 0; i < usable.length; i++) {
     for (let j = i + 1; j < usable.length; j++) {
       for (const d of findCategoricalDisagreements(usable[i], usable[j])) {
-        if (!isAutoDiscrepancyPath(d.path) || seen.has(d.path)) continue;
+        if (seen.has(d.path)) continue;
         seen.add(d.path);
         out.push({ path: d.path, label: d.label });
       }

@@ -4,8 +4,6 @@ import { parseJsonSafe, stringifyJson } from "@/lib/json";
 import {
   describeCategoricalPath,
   findCategoricalDisagreements,
-  getCategoricalRaw,
-  majorityOfThree,
   mergeMissedInstrumentNames,
   missedInstrumentCountOf,
   setCategoricalRaw,
@@ -113,19 +111,9 @@ export async function POST(
         ? parseJsonSafe(g2Row.gradingResult.gradingData, null)
         : null;
 
-      // Hallucination + missed-instrument count: any pairwise disagreement opens.
+      // Absolute agreement: every categorical button disagreement among the
+      // three forms auto-opens (incl. safety check). No silent 2:1 majority.
       const autoOpen = autoOpenDisagreements(g1, g2, gradingData);
-
-      // Paths already marked (or being marked now) as discrepancy solve — skip majority
-      const existingOpen = await prisma.discrepancyItem.findMany({
-        where: { aiOutputId: assignment.aiOutputId, status: "OPEN" },
-        select: { fieldPath: true },
-      });
-      const skipMajority = new Set([
-        ...existingOpen.map((d) => d.fieldPath),
-        ...allowedDiscPaths,
-        ...autoOpen.map((d) => d.path),
-      ]);
 
       if (allowedDiscPaths.length > 0) {
         const disagreements = g1 && g2 ? findCategoricalDisagreements(g1, g2) : [];
@@ -148,30 +136,15 @@ export async function POST(
         expert.expertId,
       );
 
-      if (g1 && g2) {
-        const disagreements = findCategoricalDisagreements(g1, g2);
-        const majority: Record<string, unknown> = {};
-        const skippedForSolve: string[] = [];
-        payload = structuredClone(gradingData);
-        for (const d of disagreements) {
-          if (skipMajority.has(d.path)) {
-            skippedForSolve.push(d.path);
-            continue;
-          }
-          // Not flagged → final answer is majority of 3 (2:1)
-          const c = getCategoricalRaw(payload, d.path);
-          const maj = majorityOfThree(d.grader1Raw, d.grader2Raw, c);
-          majority[d.path] = maj;
-          if (maj != null) setCategoricalRaw(payload, d.path, maj);
-        }
-        payload.consensusMeta = {
-          role: "tiebreaker",
-          graderSlot: assignment.graderSlot,
-          disagreementCount: disagreements.length,
-          majorityCategorical: majority,
-          discrepancySolvePaths: skippedForSolve,
-        };
-      }
+      payload = structuredClone(gradingData);
+      payload.consensusMeta = {
+        role: "tiebreaker",
+        graderSlot: assignment.graderSlot,
+        disagreementCount: autoOpen.length,
+        discrepancySolvePaths: allowedDiscPaths,
+        // Absolute agreement: leave the submitter's answers as-is; contested
+        // fields are resolved via discrepancy items, not majority overwrite.
+      };
     } else {
       payload = {
         ...gradingData,
@@ -243,8 +216,8 @@ export async function POST(
       }
     }
 
-    // Open hallucination / missed-count discrepancies as soon as any pair of
-    // completed graders disagrees (not only when the tiebreaker submits).
+    // Absolute agreement: open a discrepancy as soon as any pair of completed
+    // graders disagree on a categorical button field (incl. safety check).
     if (after.length >= 2) {
       const completedGs = after.flatMap((a) => {
         if (!a.gradingResult) return [];

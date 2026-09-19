@@ -53,7 +53,7 @@ export type GlobalGradingMetrics = {
   level2: Level2GlobalMetrics;
   level3: Level3GlobalMetrics;
   level4: Level4GlobalMetrics;
-  /** Inter-expert ICC on SHARED videos (multiple experts, same video) */
+  /** Inter-expert ICC on videos with ≥2 expert Level-4 forms */
   interExpert: InterExpertIccMetrics;
 };
 
@@ -288,11 +288,10 @@ export function computeGlobalGradingMetrics(
   }
   const interExpert = computeInterExpertIccMetrics(
     rows
-      .filter((r) => r.videoOutputId && r.expertId && r.kind)
+      .filter((r) => r.videoOutputId && r.expertId)
       .map((r) => ({
         videoOutputId: r.videoOutputId as string,
         expertId: r.expertId as string,
-        kind: r.kind as string,
         gradingData: r.gradingData,
       })),
   );

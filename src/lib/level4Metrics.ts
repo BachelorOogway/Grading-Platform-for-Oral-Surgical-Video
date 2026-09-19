@@ -1,7 +1,7 @@
 /**
  * Level 4 OSATS metrics (6 dimensions; Use of Assistants excluded).
  * - AI vs expert: MAE, LCC, SROCC (pooled over forms × dimensions with both scores)
- * - Inter-expert (SHARED videos): ICC(2,1), Fisher-z averaged over expert pairs
+ * - Inter-expert: ICC(2,1) on any video rated by ≥2 experts (Fisher-z averaged)
  * - Hallucination rate: mean of per-form (Yes / labeled dimensions)
  */
 
@@ -34,7 +34,7 @@ export type Level4GlobalMetrics = {
 };
 
 export type InterExpertIccMetrics = {
-  /** SHARED videos with ≥2 completed expert gradings */
+  /** Videos with ≥2 completed expert Level-4 score forms */
   sharedVideoCount: number;
   /** Distinct experts involved in those videos */
   sharedExpertCount: number;
@@ -44,7 +44,7 @@ export type InterExpertIccMetrics = {
   scorePairCount: number;
   /**
    * Mean pairwise ICC(2,1) after Fisher-z averaging
-   * (absolute agreement between experts on shared videos).
+   * (absolute agreement between experts on co-rated videos).
    */
   icc: number | null;
   /** Fisher z of the averaged ICC (artanh of icc) */
@@ -389,7 +389,8 @@ export function computeLevel4HallucinationRate(
 export type SharedExpertGradingRow = {
   videoOutputId: string;
   expertId: string;
-  kind: string;
+  /** @deprecated Ignored — ICC uses all multi-expert videos regardless of kind. */
+  kind?: string;
   gradingData: unknown;
 };
 
@@ -412,9 +413,14 @@ function expertScoresByDimension(
 }
 
 /**
- * Inter-expert ICC on SHARED videos rated by ≥2 experts.
- * Uses pairwise ICC(2,1) on co-rated (video × dimension) scores,
- * then Fisher-z averages the pairwise ICCs.
+ * Inter-expert ICC on any video rated by ≥2 experts with Level-4 scores.
+ *
+ * Steps:
+ * 1. Keep videos where ≥2 distinct experts submitted parseable L4 scores.
+ * 2. Treat each (video × OSATS dimension) as one target.
+ * 3. For every expert pair (A,B), collect co-rated targets → vectors xs, ys.
+ * 4. Compute ICC(2,1) absolute agreement on those two raters (need ≥2 targets).
+ * 5. Fisher-z average all pairwise ICCs → overall `icc`.
  */
 export function computeInterExpertIccMetrics(
   rows: SharedExpertGradingRow[],
@@ -428,12 +434,11 @@ export function computeInterExpertIccMetrics(
     iccFisherZ: null,
   };
 
-  const shared = rows.filter((r) => r.kind === "SHARED");
-  if (shared.length === 0) return empty;
+  if (rows.length === 0) return empty;
 
   // video -> expertId -> dimension scores
   const byVideo = new Map<string, Map<string, Map<string, number>>>();
-  for (const r of shared) {
+  for (const r of rows) {
     const dimScores = expertScoresByDimension(r.gradingData);
     if (dimScores.size === 0) continue;
     let experts = byVideo.get(r.videoOutputId);

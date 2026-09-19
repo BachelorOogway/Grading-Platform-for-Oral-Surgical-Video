@@ -17,10 +17,6 @@ type ConfigForm = {
   ex1End: number;
   ex2Start: number;
   ex2End: number;
-  sh1Start: number;
-  sh1End: number;
-  sh2Start: number;
-  sh2End: number;
 };
 
 type UploadForm = {
@@ -163,13 +159,9 @@ export default function AdminPage() {
   } = useForm<ConfigForm>({
     defaultValues: {
       ex1Start: 1,
-      ex1End: 75,
-      ex2Start: 100,
-      ex2End: 175,
-      sh1Start: 76,
-      sh1End: 99,
-      sh2Start: 176,
-      sh2End: 200,
+      ex1End: 100,
+      ex2Start: 101,
+      ex2End: 200,
     },
   });
 
@@ -247,16 +239,11 @@ export default function AdminPage() {
       .then((r) => r.json())
       .then((data) => {
         const ex = (data.exclusiveRanges ?? []) as NumericRange[];
-        const sh = (data.sharedRanges ?? []) as NumericRange[];
         resetConfig({
           ex1Start: ex[0]?.start ?? 1,
-          ex1End: ex[0]?.end ?? 75,
-          ex2Start: ex[1]?.start ?? 100,
-          ex2End: ex[1]?.end ?? 175,
-          sh1Start: sh[0]?.start ?? 76,
-          sh1End: sh[0]?.end ?? 99,
-          sh2Start: sh[1]?.start ?? 176,
-          sh2End: sh[1]?.end ?? 200,
+          ex1End: ex[0]?.end ?? 100,
+          ex2Start: ex[1]?.start ?? 101,
+          ex2End: ex[1]?.end ?? 200,
         });
       })
       .catch(() => {});
@@ -495,19 +482,15 @@ export default function AdminPage() {
         { start: Number(values.ex1Start), end: Number(values.ex1End) },
         { start: Number(values.ex2Start), end: Number(values.ex2End) },
       ];
-      const sharedRanges: NumericRange[] = [
-        { start: Number(values.sh1Start), end: Number(values.sh1End) },
-        { start: Number(values.sh2Start), end: Number(values.sh2End) },
-      ];
       const res = await fetch("/api/admin/assignment-config", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ exclusiveRanges, sharedRanges }),
+        body: JSON.stringify({ exclusiveRanges, sharedRanges: [] }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "保存失败");
-      setConfigInfo("区间配置已保存。专家刷新任务面板后生效。");
+      setConfigInfo("认领区间已保存。专家刷新任务面板后生效。");
     } finally {
       setConfigLoading(false);
     }
@@ -708,13 +691,13 @@ export default function AdminPage() {
         <section className="section-block">
           <h2 className="section-title">任务区间配置</h2>
           <p className="page-lead" style={{ marginBottom: 14 }}>
-            独占区间：专家自助认领，每个视频仅一人。共享区间：每位专家登录后自动分派，全员必评。
-            视频编号从 <code>videoOutputId</code> 解析（如 V01 → 1）。
+            可认领视频编号区间（从 <code>videoOutputId</code> 解析，如 V01 → 1）。
+            每个视频最多 3 位专家认领/评分；ICC 基于所有已有 ≥2 位专家 Level4 打分的视频计算。
           </p>
 
           <form onSubmit={handleConfigSubmit(onSaveConfig)} style={{ display: "grid", gap: 12 }}>
             <fieldset className="grading-sub" style={{ margin: 0 }}>
-              <legend>独占认领区间</legend>
+              <legend>可认领区间</legend>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <span>段1</span>
                 <input type="number" {...registerConfig("ex1Start", { valueAsNumber: true })} style={numInput} />
@@ -724,20 +707,6 @@ export default function AdminPage() {
                 <input type="number" {...registerConfig("ex2Start", { valueAsNumber: true })} style={numInput} />
                 <span>—</span>
                 <input type="number" {...registerConfig("ex2End", { valueAsNumber: true })} style={numInput} />
-              </div>
-            </fieldset>
-
-            <fieldset className="grading-sub" style={{ margin: 0 }}>
-              <legend>全员分派区间</legend>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <span>段1</span>
-                <input type="number" {...registerConfig("sh1Start", { valueAsNumber: true })} style={numInput} />
-                <span>—</span>
-                <input type="number" {...registerConfig("sh1End", { valueAsNumber: true })} style={numInput} />
-                <span style={{ marginLeft: 12 }}>段2</span>
-                <input type="number" {...registerConfig("sh2Start", { valueAsNumber: true })} style={numInput} />
-                <span>—</span>
-                <input type="number" {...registerConfig("sh2End", { valueAsNumber: true })} style={numInput} />
               </div>
             </fieldset>
 
@@ -1007,12 +976,16 @@ export default function AdminPage() {
 
         <MetricSection
           title="专家间一致性 · iccAbsoluteAgreement"
-          lead="SHARED 且 ≥2 位专家已提交的视频：对每对专家用 iccAbsoluteAgreement 算 ICC(2,1)，再汇总为一个总体值。"
+          lead="对所有已有 ≥2 位专家提交 Level4 分数的视频计算：每对专家算 ICC(2,1) 绝对一致性，再 Fisher-z 汇总为一个总体值（不再区分 SHARED）。"
           loading={metricsLoading}
           empty={!globalMetrics || globalMetrics.formCount === 0}
           summary={
             globalMetrics
-              ? `共享视频 ${globalMetrics.interExpert.sharedVideoCount} · 专家 ${globalMetrics.interExpert.sharedExpertCount} · 专家对 ${globalMetrics.interExpert.expertPairCount}`
+              ? `多专家视频 ${globalMetrics.interExpert.sharedVideoCount} · 专家 ${globalMetrics.interExpert.sharedExpertCount} · 专家对 ${globalMetrics.interExpert.expertPairCount}${
+                  globalMetrics.interExpert.sharedVideoCount === 0
+                    ? " · 尚无「同一视频 ≥2 位专家」的 Level4 打分，故 icc 为空"
+                    : ""
+                }`
               : undefined
           }
           onRefresh={() => void loadGlobalMetrics()}

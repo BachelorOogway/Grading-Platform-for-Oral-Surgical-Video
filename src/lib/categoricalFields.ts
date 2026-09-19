@@ -2,6 +2,10 @@
  * Categorical (selective) fields used for 3-grader consensus.
  * Free-text corrections and Level 4 OSATS scores are excluded; the Level 4
  * hallucination yes/no does take part.
+ *
+ * Absolute agreement: every categorical button path must match across all
+ * three experts. Any pairwise disagreement auto-opens a discrepancy — there
+ * is no silent 2:1 majority for these fields.
  */
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 
@@ -41,9 +45,19 @@ export function isMissedInstrumentCountPath(path: string): boolean {
   return path === "level1.missedInstrumentsCount";
 }
 
-/** Paths that auto-open a discrepancy (no 2:1 majority) when the first two disagree. */
-export function isAutoDiscrepancyPath(path: string): boolean {
-  return isHallucinationPath(path) || isMissedInstrumentCountPath(path);
+export function isSafetyCheckPath(path: string): boolean {
+  return path.includes("safetyCheckPass");
+}
+
+/**
+ * Every categorical button path auto-opens on disagreement (absolute
+ * agreement among the three experts). Level 4 expertScore is never in the
+ * categorical extract list, so it stays excluded.
+ *
+ * @deprecated Kept for callers; always true for categorical paths now.
+ */
+export function isAutoDiscrepancyPath(_path: string): boolean {
+  return true;
 }
 
 /** Non-empty missed-instrument names from a grading payload. */
@@ -332,6 +346,11 @@ export function compareTokenForPath(path: string, raw: unknown): string | null {
   if (isYesNoPath(path)) {
     if (raw === true || raw === "yes" || raw === "Yes") return "yes";
     if (raw === false || raw === "no" || raw === "No") return "no";
+    return null;
+  }
+  if (isSafetyCheckPath(path)) {
+    if (raw === true || raw === "pass" || raw === "Pass") return "pass";
+    if (raw === false || raw === "fail" || raw === "Fail") return "fail";
     return null;
   }
   if (isMissedInstrumentCountPath(path)) {

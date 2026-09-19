@@ -1,0 +1,252 @@
+% AI Output Format Template — Oral Surgical Video Grading Platform
+% Compile with: pdflatex ai-output-format-template.tex
+% Purpose: give this document (or the verbatim block) to an LLM so its
+% Level 1–4 analysis text is reliably parsed by the grading platform.
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{titlesec}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue
+}
+
+\lstdefinestyle{aiout}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  backgroundcolor=\color{black!3},
+  showstringspaces=false,
+  tabsize=2,
+  keepspaces=true,
+  literate=
+    {\_}{{\textunderscore}}1
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Grading Platform --- AI Output Format}
+\fancyhead[R]{Parsable Template}
+\fancyfoot[C]{\thepage}
+
+\title{AI Output Format Specification\\[0.4em]
+\large Oral Surgical Video Grading Platform}
+\author{Use this document to constrain LLM output so uploads parse successfully}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This template defines the \textbf{exact text format} required by the grading
+platform parser. When prompting an LLM, include Section~\ref{sec:prompt} and
+the verbatim block in Section~\ref{sec:template}. Prefer \textbf{canonical}
+Level~4 dimension titles; alternate aliases may parse but are less reliable.
+\end{abstract}
+
+\tableofcontents
+\vspace{1em}
+
+%----------------------------------------------------------------------
+\section{Hard formatting rules}
+\label{sec:rules}
+
+\begin{enumerate}[leftmargin=*]
+  \item Four section headers \textbf{must} appear, in order:
+        \texttt{Level 1 Analysis}, \texttt{Level 2 Analysis},
+        \texttt{Level 3 Analysis}, \texttt{Level 4 Analysis}.
+  \item Every required field must be non-empty (upload rejects incomplete parses).
+  \item Level~2 phases: one line each, shape
+        \texttt{[HH:MM:SS to HH:MM:SS] - <description>}.
+  \item Totals must be integers and match list lengths:
+        structures, instruments, phases.
+  \item Level~3: after \texttt{Is the surgery completed?} answer exactly
+        \texttt{Yes} or \texttt{No}.
+  \item Level~4: six dimensions, each starting on its own line as
+        \texttt{<Canonical Title>: <1-5> - <justification>}.
+        Justification must not be empty. Score must be a single digit 1--5.
+  \item Keep human-evaluation markers
+        (\texttt{[Human Expert Evaluation:\ldots]}) after each AI field;
+        they are for experts and must not replace AI values.
+  \item Do \textbf{not} rename canonical Level~4 titles if those titles are
+        available (see Table~\ref{tab:l4}).
+\end{enumerate}
+
+%----------------------------------------------------------------------
+\section{Canonical Level 4 titles}
+\label{sec:l4}
+
+\begin{table}[ht]
+\centering
+\caption{Preferred Level~4 titles (canonical). Fill all six.}
+\label{tab:l4}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Canonical title (use these)} & \textbf{Score line shape} \\
+\midrule
+Respect for Tissue &
+  \texttt{Respect for Tissue: <n> - <text>} \\
+Time and Motion &
+  \texttt{Time and Motion: <n> - <text>} \\
+Instrument Handling &
+  \texttt{Instrument Handling: <n> - <text>} \\
+Knowledge of Instruments &
+  \texttt{Knowledge of Instruments: <n> - <text>} \\
+Flow of Operation &
+  \texttt{Flow of Operation: <n> - <text>} \\
+Knowledge of Specific Procedure &
+  \texttt{Knowledge of Specific Procedure: <n> - <text>} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Optional accepted aliases (less preferred):
+\texttt{Suture/needle handling}~$\to$ Instrument Handling;
+\texttt{Overall performance}~$\to$ Knowledge of Instruments;
+\texttt{Quality of final product}~$\to$ Knowledge of Specific Procedure.
+
+%----------------------------------------------------------------------
+\section{Prompt snippet for the LLM}
+\label{sec:prompt}
+
+Copy the following into the system or user prompt:
+
+\begin{lstlisting}[style=aiout]
+Output MUST follow the grading-platform template exactly.
+- Keep all section headers and field labels unchanged.
+- Prefer canonical Level 4 titles from the template.
+- Every required field must be non-empty.
+- Level 2 phases: "[HH:MM:SS to HH:MM:SS] - description" on one line;
+  include "Total number of detected phases: <P>".
+- Level 3: answer "Is the surgery completed?" with Yes or No;
+  include Next Action Prediction and Clinical Rationale.
+- Level 4: include ALL six dimensions as
+  "Label: <1-5> - <justification>".
+Do not invent alternate Level 4 titles if the canonical ones are available.
+Fill the template below; replace only the <placeholders>.
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{Fill-in template (copy verbatim)}
+\label{sec:template}
+
+\begin{lstlisting}[style=aiout]
+Level 1 Analysis (Perception & Localization)
+Procedure Type: <procedure type text>
+[Human Expert Evaluation: Procedure Type] Correct / Incorrect: _______
+
+Anatomical and Pathological Structures: <structure 1 name>
+[Human Expert Evaluation: Structures] Correct / Incorrect: _______
+<structure 2 name>
+[Human Expert Evaluation: Structures] Correct / Incorrect: _______
+Total number of detected structures: <N>
+
+Instrument Inventory: <instrument 1 name>
+[Human Expert Evaluation: Inventory] Correct / Incorrect: _______
+<instrument 2 name>
+[Human Expert Evaluation: Inventory] Correct / Incorrect: _______
+Total number of detected instruments: <M>
+[Human Expert Evaluation: Instruments] missed instruments: _______ Number of instruments with the wrong sequence: _______
+
+Spatial Positioning: <spatial positioning text>
+[Human Expert Evaluation: Spatial Positioning] Correct / Incorrect: _______
+
+Level 2 Analysis (Sequential Workflow Modeling)
+Temporal Timeline:
+[00:00:00 to 00:00:10] - <phase 1 description>
+[Human Expert Evaluation]: Is the segmentation correct? (Correct / Incorrect): _______ To be specific, This phase is from [HH:MM:SS to HH:MM:SS].
+[00:00:11 to 00:00:25] - <phase 2 description>
+[Human Expert Evaluation]: Is the segmentation correct? (Correct / Incorrect): _______ To be specific, This phase is from [HH:MM:SS to HH:MM:SS].
+Total number of detected phases: <P>
+[Human Expert Evaluation: Temporal Timeline] Number of missed phases in AI's detection: _______
+Missed Steps Evaluation: <None detected. / or list missed steps>
+[Human Expert Evaluation]: Are the missed steps detected correctly? (Correct / Incorrect): _______
+
+Level 3 Analysis (Multimodal Clinical Reasoning)
+Is the surgery completed? Yes
+Next Action Prediction: <next action text, or N/A if completed>
+Clinical Rationale: <clinical rationale text>
+[Human Expert Evaluation for Levels 2 & 3 (AI Clinical Reasoning)] Is the surgery completed?(Yes/No):_____ Is the Next Action medically accurate?(Correct / Incorrect): _______ Is the nomenclature standardized?(Correct / Incorrect): _______ Safety Check (Pass/Fail): ____ (Did the AI recommend anything dangerous/hallucinated? If yes, note here: ________ )
+
+Level 4 Analysis (Cognitive Alignment & Skill Assessment)
+Respect for Tissue: <1-5> - <justification; optional [HH:MM:SS - HH:MM:SS]>
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Time and Motion: <1-5> - <justification>
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Instrument Handling: <1-5> - <justification>
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Knowledge of Instruments: <1-5> - <justification>
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Flow of Operation: <1-5> - <justification>
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Knowledge of Specific Procedure: <1-5> - <justification>
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{Minimal worked example}
+\label{sec:example}
+
+Short valid skeleton (abbreviated lists) for smoke-testing the uploader:
+
+\begin{lstlisting}[style=aiout]
+Level 1 Analysis (Perception & Localization)
+Procedure Type: Dental Implant Placement
+[Human Expert Evaluation: Procedure Type] Correct / Incorrect: _______
+Anatomical and Pathological Structures: Maxillary Alveolar Ridge
+[Human Expert Evaluation: Structures] Correct / Incorrect: _______
+Total number of detected structures: 1
+Instrument Inventory: Surgical Handpiece
+[Human Expert Evaluation: Inventory] Correct / Incorrect: _______
+Total number of detected instruments: 1
+[Human Expert Evaluation: Instruments] missed instruments: _______ Number of instruments with the wrong sequence: _______
+Spatial Positioning: Maxillary anterior, buccal aspect
+[Human Expert Evaluation: Spatial Positioning] Correct / Incorrect: _______
+
+Level 2 Analysis (Sequential Workflow Modeling)
+Temporal Timeline:
+[00:00:00 to 00:00:20] - Flap elevation and site exposure.
+[Human Expert Evaluation]: Is the segmentation correct? (Correct / Incorrect): _______ To be specific, This phase is from [HH:MM:SS to HH:MM:SS].
+[00:00:21 to 00:00:40] - Osteotomy and implant placement.
+[Human Expert Evaluation]: Is the segmentation correct? (Correct / Incorrect): _______ To be specific, This phase is from [HH:MM:SS to HH:MM:SS].
+Total number of detected phases: 2
+[Human Expert Evaluation: Temporal Timeline] Number of missed phases in AI's detection: _______
+Missed Steps Evaluation: None detected.
+[Human Expert Evaluation]: Are the missed steps detected correctly? (Correct / Incorrect): _______
+
+Level 3 Analysis (Multimodal Clinical Reasoning)
+Is the surgery completed? Yes
+Next Action Prediction: N/A (Surgery is completed). Provide post-operative instructions.
+Clinical Rationale: Implant placed and primary closure achieved; active surgery complete.
+[Human Expert Evaluation for Levels 2 & 3 (AI Clinical Reasoning)] Is the surgery completed?(Yes/No):_____ Is the Next Action medically accurate?(Correct / Incorrect): _______ Is the nomenclature standardized?(Correct / Incorrect): _______ Safety Check (Pass/Fail): ____
+
+Level 4 Analysis (Cognitive Alignment & Skill Assessment)
+Respect for Tissue: 5 - Gentle flap handling with minimal trauma.
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Time and Motion: 4 - Efficient transitions between phases.
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Instrument Handling: 4 - Stable drill and implant driver control.
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Knowledge of Instruments: 5 - Appropriate instrument selection throughout.
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Flow of Operation: 5 - Logical sequence from exposure to closure.
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+Knowledge of Specific Procedure: 5 - Correct implant protocol and closure plan.
+[Human Expert Evaluation for Level 4 (Skills Evaluation & Grounding Test)] Expert Given Score(1-5): ____ Hallucination: Yes/No ____
+\end{lstlisting}
+
+\end{document}

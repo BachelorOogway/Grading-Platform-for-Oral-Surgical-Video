@@ -97,14 +97,12 @@ export async function GET(req: Request) {
 
   const myAiIds = new Set(assignments.map((a) => a.aiOutputId));
 
-  // Claimable: any configured range video with < 3 graders and not already mine
+  // Claimable: configured-range videos with < 3 graders and not already mine
   const claimable = allOutputs
     .filter((o) => {
       const n = parseVideoNumber(o.videoOutputId);
       if (n === null) return false;
-      const inEx = isInRanges(n, config.exclusiveRanges);
-      const inSh = isInRanges(n, config.sharedRanges);
-      if (!inEx && !inSh) return false;
+      if (!isInRanges(n, config.exclusiveRanges)) return false;
       if (myAiIds.has(o.id)) return false;
       return (countByAi.get(o.id) ?? 0) < GRADERS_PER_VIDEO;
     })

@@ -12,6 +12,7 @@ export type { NumericRange };
 
 export const AssignmentKind = {
   EXCLUSIVE: "EXCLUSIVE",
+  /** @deprecated No longer assigned; historical rows may still have this value. */
   SHARED: "SHARED",
 } as const;
 
@@ -54,92 +55,51 @@ export async function getAssignmentConfig() {
     exclusiveRanges: normalizeRanges(
       parseJsonSafe(row.exclusiveRanges, DEFAULT_EXCLUSIVE_RANGES),
     ),
-    sharedRanges: normalizeRanges(
-      parseJsonSafe(row.sharedRanges, DEFAULT_SHARED_RANGES),
-    ),
+    // Always empty going forward; column kept for schema compatibility.
+    sharedRanges: [] as NumericRange[],
   };
 }
 
 export async function saveAssignmentConfig(input: {
   exclusiveRanges: NumericRange[];
-  sharedRanges: NumericRange[];
+  sharedRanges?: NumericRange[];
 }) {
   const exclusiveRanges = normalizeRanges(input.exclusiveRanges);
-  const sharedRanges = normalizeRanges(input.sharedRanges);
 
   return prisma.assignmentConfig.upsert({
     where: { id: "default" },
     update: {
       exclusiveRanges: stringifyJson(exclusiveRanges),
-      sharedRanges: stringifyJson(sharedRanges),
+      sharedRanges: stringifyJson([]),
     },
     create: {
       id: "default",
       exclusiveRanges: stringifyJson(exclusiveRanges),
-      sharedRanges: stringifyJson(sharedRanges),
+      sharedRanges: stringifyJson([]),
     },
   });
 }
 
 export function classifyVideoNumber(
   videoNumber: number,
-  config: { exclusiveRanges: NumericRange[]; sharedRanges: NumericRange[] },
+  config: { exclusiveRanges: NumericRange[]; sharedRanges?: NumericRange[] },
 ): AssignmentKindValue | null {
-  if (isInRanges(videoNumber, config.exclusiveRanges)) return AssignmentKind.EXCLUSIVE;
-  if (isInRanges(videoNumber, config.sharedRanges)) return AssignmentKind.SHARED;
+  if (isInRanges(videoNumber, config.exclusiveRanges)) {
+    return AssignmentKind.EXCLUSIVE;
+  }
   return null;
 }
 
 export function classifyVideoOutputId(
   videoOutputId: string,
-  config: { exclusiveRanges: NumericRange[]; sharedRanges: NumericRange[] },
+  config: { exclusiveRanges: NumericRange[]; sharedRanges?: NumericRange[] },
 ): AssignmentKindValue | null {
   const n = parseVideoNumber(videoOutputId);
   if (n === null) return null;
   return classifyVideoNumber(n, config);
 }
 
-export async function syncSharedAssignmentsForExpert(expertDbId: string) {
-  const config = await getAssignmentConfig();
-  const outputs = await prisma.aiOutput.findMany({
-    select: { id: true, videoOutputId: true },
-  });
-
-  const { GRADERS_PER_VIDEO } = await import("./graders");
-
-  const sharedOutputs = outputs.filter((o) => {
-    const n = parseVideoNumber(o.videoOutputId);
-    return n !== null && isInRanges(n, config.sharedRanges);
-  });
-
-  for (const o of sharedOutputs) {
-    const existingMine = await prisma.taskAssignment.findFirst({
-      where: { expertId: expertDbId, aiOutputId: o.id },
-      select: { id: true },
-    });
-    if (existingMine) continue;
-
-    const count = await prisma.taskAssignment.count({
-      where: { aiOutputId: o.id },
-    });
-    if (count >= GRADERS_PER_VIDEO) continue;
-
-    const used = await prisma.taskAssignment.findMany({
-      where: { aiOutputId: o.id },
-      select: { graderSlot: true },
-    });
-    const usedSlots = new Set(used.map((u) => u.graderSlot));
-    let slot = 1;
-    while (usedSlots.has(slot) && slot <= GRADERS_PER_VIDEO) slot += 1;
-
-    await prisma.taskAssignment.create({
-      data: {
-        expertId: expertDbId,
-        aiOutputId: o.id,
-        kind: AssignmentKind.SHARED,
-        status: "PENDING",
-        graderSlot: slot,
-      },
-    });
-  }
+/** No-op: shared auto-assign removed. */
+export async function syncSharedAssignmentsForExpert(_expertDbId: string) {
+  return;
 }
