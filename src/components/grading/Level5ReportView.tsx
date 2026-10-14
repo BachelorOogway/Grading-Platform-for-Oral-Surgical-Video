@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  cleanLevel5Report,
-  splitLevel5Report,
-} from "@/lib/level5Dimensions";
+import { cleanLevel5Report } from "@/lib/level5Dimensions";
 
 /** HH:MM:SS, MM:SS, and ranges with to / dash, with or without brackets. */
 const TS_RE =
@@ -20,32 +17,30 @@ function formatLine(line: string) {
   return escapeHtml(line).replace(TS_RE, (m) => `<mark class="l5-ts">${m}</mark>`);
 }
 
+/** Show the AI Level 5 body as free text — no fixed section structure required. */
 export function Level5ReportView({ report }: { report: string }) {
   const cleaned = cleanLevel5Report(report);
   if (!cleaned) {
     return (
       <div className="notice notice-danger">
-        No Level 5 operative report was parsed. Add Level 5 Analysis and the
-        report body at the end of the AI output, then upload again.
+        No Level 5 output was parsed. Add Level 5 Analysis and the report body
+        at the end of the AI output, then upload again.
       </div>
     );
   }
 
-  const sections = splitLevel5Report(cleaned);
   return (
     <div className="l5-report">
-      {sections.map((s) => (
-        <section key={s.key} className="l5-section">
-          <div className="l5-section-title">{s.label}</div>
-          {s.body.split(/\n/).map((line, i) => (
-            <p
-              key={i}
-              style={{ margin: "0 0 6px" }}
-              dangerouslySetInnerHTML={{ __html: formatLine(line) || "—" }}
-            />
-          ))}
-        </section>
-      ))}
+      <section className="l5-section">
+        <div className="l5-section-title">AI Level 5 output</div>
+        {cleaned.split(/\n/).map((line, i) => (
+          <p
+            key={i}
+            style={{ margin: "0 0 6px", whiteSpace: "pre-wrap" }}
+            dangerouslySetInnerHTML={{ __html: formatLine(line) || "—" }}
+          />
+        ))}
+      </section>
     </div>
   );
 }

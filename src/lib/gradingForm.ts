@@ -5,12 +5,11 @@ import {
   level4LabelForKey,
 } from "./level4Dimensions";
 import {
-  LEVEL5_DIMENSION_KEYS,
-  detectLevel5ProcedureKind,
-  level5ActiveDimensions,
+  LEVEL5_DIMENSIONS,
+  LEVEL5_MAX_TOTAL,
   level5LabelForKey,
   level5ScoreFromGrading,
-  type Level5Judgement,
+  parseLevel5Score,
 } from "./level5Dimensions";
 import {
   computeLevel2ContentMetrics,
@@ -93,7 +92,10 @@ export type Level4DimensionForm = {
 };
 
 export type Level5DimensionForm = {
-  judgement: Level5Judgement | "";
+  /** Integer 0..maxWeight; null until filled */
+  score: number | null;
+  errors: Record<string, boolean>;
+  remarks: string;
 };
 
 export type GradingForm = {
@@ -104,9 +106,19 @@ export type GradingForm = {
     dimensions: Record<string, Level4DimensionForm>;
   };
   level5: {
+    autoFail: "yes" | "no" | "";
+    autoFailRemarks: string;
     dimensions: Record<string, Level5DimensionForm>;
   };
 };
+
+function defaultL5Dim(def: (typeof LEVEL5_DIMENSIONS)[number]): Level5DimensionForm {
+  return {
+    score: null,
+    errors: Object.fromEntries(def.errors.map((e) => [e.key, false])),
+    remarks: "",
+  };
+}
 
 const defaultL4Dim = (): Level4DimensionForm => ({
   expertScore: null,
@@ -166,8 +178,10 @@ export function buildDefaultGradingForm(parsed: AiParsedData): GradingForm {
     },
     level4: { dimensions: l4Dims },
     level5: {
+      autoFail: "",
+      autoFailRemarks: "",
       dimensions: Object.fromEntries(
-        LEVEL5_DIMENSION_KEYS.map((key) => [key, { judgement: "" as const }]),
+        LEVEL5_DIMENSIONS.map((def) => [def.key, defaultL5Dim(def)]),
       ),
     },
   };
@@ -505,29 +519,40 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
       })(),
     },
     level5: (() => {
-      const procedureKind = detectLevel5ProcedureKind(
-        parsed.level1?.procedureType ?? "",
-      );
-      const active = level5ActiveDimensions(procedureKind);
-      const dimensions = active.map((def) => ({
-        key: def.key,
-        label: def.label,
-        section: def.section,
-        group: def.group,
-        judgement: values.level5?.dimensions?.[def.key]?.judgement || "",
-      }));
-      const score = level5ScoreFromGrading({
-        level5: { procedureKind, dimensions },
+      const autoFail = values.level5?.autoFail === "yes" ? "yes" : "no";
+      const dimensions = LEVEL5_DIMENSIONS.map((def) => {
+        const row = values.level5?.dimensions?.[def.key];
+        const score = parseLevel5Score(row?.score, def.maxWeight);
+        const errors = Object.fromEntries(
+          def.errors.map((e) => [e.key, Boolean(row?.errors?.[e.key])]),
+        );
+        return {
+          key: def.key,
+          label: def.label,
+          maxWeight: def.maxWeight,
+          score,
+          errors,
+          errorKeys: def.errors
+            .filter((e) => errors[e.key])
+            .map((e) => e.key),
+          remarks: String(row?.remarks ?? "").trim(),
+        };
+      });
+      const summary = level5ScoreFromGrading({
+        level5: {
+          autoFail,
+          autoFailRemarks: values.level5?.autoFailRemarks ?? "",
+          dimensions,
+        },
       });
       return {
         report: parsed.level5?.report ?? "",
-        procedureKind,
-        procedureType: parsed.level1?.procedureType ?? "",
+        autoFail: autoFail === "yes",
+        autoFailRemarks: String(values.level5?.autoFailRemarks ?? "").trim(),
         dimensions,
-        reportScore: score.reportScore,
-        dimensionTotal: score.total,
-        hallucinateCount: score.hallucinateCount,
-        missedCount: score.missedCount,
+        reportScore: summary.reportScore,
+        dimensionSum: summary.dimensionSum,
+        maxTotal: LEVEL5_MAX_TOTAL,
       };
     })(),
   };
@@ -740,28 +765,56 @@ export function hydrateGradingForm(
         }),
       ),
     },
-    level5: {
-      dimensions: Object.fromEntries(
-        LEVEL5_DIMENSION_KEYS.map((key) => {
-          const savedL5 = saved.level5 ?? {};
-          const savedL5Dims: any[] = Array.isArray(savedL5.dimensions)
-            ? savedL5.dimensions
-            : [];
-          const savedL5Rec =
-            savedL5.dimensions && !Array.isArray(savedL5.dimensions)
-              ? savedL5.dimensions
-              : null;
-          const fromArr = savedL5Dims.find((d) => d?.key === key);
-          const fromRec = savedL5Rec?.[key];
-          const raw = fromArr?.judgement ?? fromRec?.judgement;
-          const judgement =
-            raw === "correct" || raw === "hallucinate" || raw === "missed"
-              ? raw
-              : "";
-          return [key, { judgement }];
-        }),
-      ),
-    },
+    level5: (() => {
+      const savedL5 = saved.level5 ?? {};
+      const rawAuto = savedL5.autoFail;
+      const autoFail =
+        rawAuto === true || rawAuto === "yes"
+          ? ("yes" as const)
+          : rawAuto === false || rawAuto === "no"
+            ? ("no" as const)
+            : ("" as const);
+      const savedL5Dims: any[] = Array.isArray(savedL5.dimensions)
+        ? savedL5.dimensions
+        : [];
+      const savedL5Rec =
+        savedL5.dimensions && !Array.isArray(savedL5.dimensions)
+          ? savedL5.dimensions
+          : null;
+      return {
+        autoFail,
+        autoFailRemarks: String(savedL5.autoFailRemarks ?? ""),
+        dimensions: Object.fromEntries(
+          LEVEL5_DIMENSIONS.map((def) => {
+            const fromArr = savedL5Dims.find((d) => d?.key === def.key);
+            const fromRec = savedL5Rec?.[def.key];
+            const src = fromArr ?? fromRec ?? {};
+            const score = parseLevel5Score(src?.score, def.maxWeight);
+            const errSrc = src?.errors;
+            const errors = Object.fromEntries(
+              def.errors.map((e) => {
+                if (Array.isArray(errSrc)) {
+                  return [e.key, errSrc.includes(e.key)];
+                }
+                if (errSrc && typeof errSrc === "object") {
+                  const v = (errSrc as Record<string, unknown>)[e.key];
+                  return [e.key, v === true || v === "yes"];
+                }
+                return [e.key, false];
+              }),
+            );
+            return [
+              def.key,
+              {
+                score,
+                errors,
+                remarks: String(src?.remarks ?? ""),
+              },
+            ];
+          }),
+        ),
+      };
+    })(),
   };
 }
 
@@ -1020,19 +1073,22 @@ export function getGradingIncompleteFields(
       message: "Level 5: surgical report missing (re-upload AI output)",
     });
   }
-  const procedureKind = detectLevel5ProcedureKind(
-    parsed.level1?.procedureType ?? "",
-  );
-  for (const def of level5ActiveDimensions(procedureKind)) {
-    const j = values.level5.dimensions?.[def.key]?.judgement;
-    if (j !== "correct" && j !== "hallucinate" && j !== "missed") {
+  if (values.level5.autoFail !== "yes" && values.level5.autoFail !== "no") {
+    missing.push({
+      id: "l5-autoFail",
+      message: "Level 5: critical auto-fail (Yes/No)",
+    });
+  }
+  for (const def of LEVEL5_DIMENSIONS) {
+    const row = values.level5.dimensions?.[def.key];
+    const score = parseLevel5Score(row?.score, def.maxWeight);
+    if (score == null) {
       missing.push({
-        id: `l5-${def.key}`,
-        message: `Level 5: ${level5LabelForKey(def.key)}`,
+        id: `l5-${def.key}-score`,
+        message: `Level 5: ${level5LabelForKey(def.key)} score (0–${def.maxWeight})`,
       });
     }
   }
-
   return missing;
 }
 

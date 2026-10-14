@@ -464,10 +464,13 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     "l4_hallucination_rate",
     "l5_report",
     "l5_report_score",
-    "l5_dimension_total",
-    "l5_hallucinate_count",
-    "l5_missed_count",
-    ...LEVEL5_DIMENSIONS.map((d) => `l5_${d.key}_judgement`),
+    "l5_max_total",
+    "l5_auto_fail",
+    "l5_dimension_sum",
+    ...LEVEL5_DIMENSIONS.flatMap((d) => [
+      `l5_${d.key}_score`,
+      `l5_${d.key}_errors`,
+    ]),
   ];
 
   const lines = [headers.map(csvEscape).join(",")];
@@ -660,10 +663,13 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
         hallRate,
         String(l5gd.report || parsed.level5?.report || ""),
         l5.reportScore,
-        l5.total,
-        l5.hallucinateCount,
-        l5.missedCount,
-        ...LEVEL5_DIMENSIONS.map((d) => l5.byKey[d.key] || ""),
+        l5.maxTotal,
+        l5.autoFail ? "yes" : "no",
+        l5.dimensionSum,
+        ...LEVEL5_DIMENSIONS.flatMap((d) => {
+          const row = l5.byKey[d.key];
+          return [row?.score ?? "", (row?.errors ?? []).join("|")];
+        }),
       ]
         .map(csvEscape)
         .join(","),

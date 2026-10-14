@@ -395,7 +395,7 @@ export default function TaskGradingPage() {
                 ? "本任务已提交，以下内容只读保留。"
                 : isTiebreaker
                   ? "三位评分表并排对照。前两位（本轮先提交的两位）答案不同的题会以粉色标出；只有你作为本轮第三位打分者可以点 discrepancy solve。点选后三位评分者的 Dashboard 会立即显示该题。Level 2 起止时间若任意两人相差超过 3 秒会自动进入 discrepancy。未标记项提交时按 2:1 多数决。"
-                  : "Answers are saved on this device. Score Level 1–3 and Level 5 against the AI output. Level 4 hides the AI score — score independently. Level 5 uses one 5.2 field set from the AI procedure type; the report score is the Correct count. After a regrade or a new AI upload, the first two graders this round score independently; the third grader sees the side-by-side forms and discrepancy solve."}
+                  : "Answers are saved on this device. Score Level 1–3 and Level 5 against the AI output. Level 4 hides the AI score — score independently. Level 5 shows the AI operative report, then a 6-dimension weighted rubric (max 100) with optional critical auto-fail. After a regrade or a new AI upload, the first two graders this round score independently; the third grader sees the side-by-side forms and discrepancy solve."}
             </p>
           </div>
           <button

@@ -992,6 +992,96 @@ export default function AdminPage() {
           }
         />
 
+        <MetricSection
+          title="Level 5 · Operative Report Score"
+          lead="每位专家的报告总分（0–100；auto-fail 记为 0）。总体均值/标准差汇总全部已完整打分的专家表；每个视频再算该视频上各位专家分数的均值与样本标准差。"
+          loading={metricsLoading}
+          empty={
+            !globalMetrics ||
+            !globalMetrics.level5 ||
+            globalMetrics.level5.labeledFormCount === 0
+          }
+          summary={
+            globalMetrics?.level5
+              ? `完整 Level 5 评分表 ${globalMetrics.level5.labeledFormCount} · 视频 ${globalMetrics.level5.videoCount}`
+              : undefined
+          }
+          onRefresh={() => void loadGlobalMetrics()}
+          cards={
+            globalMetrics?.level5
+              ? [
+                  {
+                    label: "Overall mean",
+                    value: formatMetricNumber(globalMetrics.level5.overallMean, 2),
+                    hint: "所有专家表报告分的算术平均",
+                  },
+                  {
+                    label: "Overall SD",
+                    value: formatMetricNumber(globalMetrics.level5.overallSd, 2),
+                    hint: "样本标准差（n−1）；不足 2 份时为空",
+                  },
+                ]
+              : []
+          }
+        />
+
+        {globalMetrics?.level5 && globalMetrics.level5.perVideo.length > 0 ? (
+          <section className="section-block">
+            <h2 className="section-title">Level 5 · 每视频报告分</h2>
+            <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
+              每个视频上各位专家报告分的均值与标准差（通常最多 3 位）。
+            </p>
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  fontSize: 13,
+                  borderCollapse: "collapse",
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                      Video
+                    </th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                      Experts
+                    </th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                      Mean
+                    </th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                      SD
+                    </th>
+                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                      Scores
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {globalMetrics.level5.perVideo.map((v) => (
+                    <tr key={v.videoOutputId}>
+                      <td style={{ padding: "6px 8px" }}>{v.videoOutputId}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>
+                        {v.expertCount}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>
+                        {formatMetricNumber(v.mean, 2)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>
+                        {formatMetricNumber(v.sd, 2)}
+                      </td>
+                      <td className="muted" style={{ padding: "6px 8px" }}>
+                        {v.scores.join(", ")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
         <section className="section-block">
           <h2 className="section-title">导出 CSV</h2>
           <p className="page-lead" style={{ marginBottom: 14 }}>

@@ -154,13 +154,28 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
       <section>
         <h4>Level 5 — Operative Report</h4>
         <Row
-          label="Report score (Correct count)"
+          label="Report score"
           value={
             l5.reportScore != null
-              ? `${l5.reportScore} / ${l5.dimensionTotal ?? l5Dims.length}`
+              ? `${l5.reportScore} / ${l5.maxTotal ?? 100}${
+                  l5.autoFail ? " (auto-fail)" : ""
+                }`
               : "—"
           }
         />
+        <Row
+          label="Auto-fail"
+          value={
+            l5.autoFail === true || l5.autoFail === "yes"
+              ? "Yes"
+              : l5.autoFail === false || l5.autoFail === "no"
+                ? "No"
+                : "—"
+          }
+        />
+        {l5.autoFailRemarks ? (
+          <Row label="Auto-fail remarks" value={String(l5.autoFailRemarks)} />
+        ) : null}
         {l5.report ? (
           <div className="muted" style={{ whiteSpace: "pre-wrap", marginBottom: 8 }}>
             {String(l5.report).slice(0, 800)}
@@ -168,14 +183,29 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
           </div>
         ) : null}
         {l5Dims.length === 0 ? (
-          <div className="muted">No Level 5 judgements</div>
+          <div className="muted">No Level 5 scores</div>
         ) : (
           <ul className="admin-form-list">
-            {l5Dims.map((d) => (
-              <li key={d.key || d.label}>
-                {d.label || d.key}: {yn(d.judgement)}
-              </li>
-            ))}
+            {l5Dims.map((d) => {
+              const errObj =
+                d.errors && typeof d.errors === "object" && !Array.isArray(d.errors)
+                  ? Object.entries(d.errors as Record<string, unknown>)
+                      .filter(([, v]) => v === true || v === "yes")
+                      .map(([k]) => k)
+                  : Array.isArray(d.errorKeys)
+                    ? d.errorKeys
+                    : Array.isArray(d.errors)
+                      ? d.errors
+                      : [];
+              return (
+                <li key={d.key || d.label}>
+                  {d.label || d.key}: {d.score ?? "—"}
+                  {d.maxWeight != null ? ` / ${d.maxWeight}` : ""}
+                  {errObj.length > 0 ? ` · errors: ${errObj.join(", ")}` : ""}
+                  {d.remarks ? ` · ${d.remarks}` : ""}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

@@ -282,6 +282,52 @@ function globalSummaryLines(m: GlobalGradingMetrics): string[] {
       "",
       m.interExpert.expertPairCount,
     ],
+    [
+      "level5_global",
+      "labeled_form_count",
+      m.level5.labeledFormCount,
+      "",
+      m.level5.formCount,
+    ],
+    [
+      "level5_global",
+      "overall_mean",
+      m.level5.overallMean,
+      "",
+      m.level5.labeledFormCount,
+    ],
+    [
+      "level5_global",
+      "overall_sd",
+      m.level5.overallSd,
+      "",
+      m.level5.labeledFormCount,
+    ],
+    [
+      "level5_global",
+      "video_count",
+      m.level5.videoCount,
+      "",
+      "",
+    ],
+    ...m.level5.perVideo.flatMap(
+      (v): Array<[string, string, unknown, unknown, unknown]> => [
+        [
+          "level5_per_video",
+          `${v.videoOutputId}_mean`,
+          v.mean,
+          "",
+          v.expertCount,
+        ],
+        [
+          "level5_per_video",
+          `${v.videoOutputId}_sd`,
+          v.sd,
+          "",
+          v.expertCount,
+        ],
+      ],
+    ),
   ];
 
   return [
@@ -366,10 +412,13 @@ export async function GET(req: Request) {
       `l4_${d.key}_hallucination`,
     ]),
     "l5_report_score",
-    "l5_dimension_total",
-    "l5_hallucinate_count",
-    "l5_missed_count",
-    ...LEVEL5_DIMENSIONS.map((d) => `l5_${d.key}_judgement`),
+    "l5_max_total",
+    "l5_auto_fail",
+    "l5_dimension_sum",
+    ...LEVEL5_DIMENSIONS.flatMap((d) => [
+      `l5_${d.key}_score`,
+      `l5_${d.key}_errors`,
+    ]),
   ];
 
   const lines: string[] = [
@@ -542,10 +591,16 @@ export async function GET(req: Request) {
         const l5 = level5ScoreFromGrading(gd);
         return [
           l5.reportScore,
-          l5.total,
-          l5.hallucinateCount,
-          l5.missedCount,
-          ...LEVEL5_DIMENSIONS.map((d) => l5.byKey[d.key] || ""),
+          l5.maxTotal,
+          l5.autoFail ? "yes" : "no",
+          l5.dimensionSum,
+          ...LEVEL5_DIMENSIONS.flatMap((d) => {
+            const row = l5.byKey[d.key];
+            return [
+              row?.score ?? "",
+              (row?.errors ?? []).join("|"),
+            ];
+          }),
         ];
       })(),
     ];

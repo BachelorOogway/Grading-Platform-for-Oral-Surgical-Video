@@ -14,14 +14,24 @@ import {
   type InterExpertIccMetrics,
   type Level4GlobalMetrics,
 } from "./level4Metrics";
+import {
+  computeLevel5GlobalMetrics,
+  type Level5GlobalMetrics,
+} from "./level5Dimensions";
 
-export type { Level3GlobalMetrics, Level4GlobalMetrics, InterExpertIccMetrics };
+export type {
+  Level3GlobalMetrics,
+  Level4GlobalMetrics,
+  InterExpertIccMetrics,
+  Level5GlobalMetrics,
+};
 export { formatMetricRate } from "./level3Metrics";
 export {
   computeInterExpertIccMetrics,
   iccAbsoluteAgreement,
   fisherZAverage,
 } from "./level4Metrics";
+export { computeLevel5GlobalMetrics } from "./level5Dimensions";
 
 export type Level1GlobalMetrics = {
   formCount: number;
@@ -55,6 +65,8 @@ export type GlobalGradingMetrics = {
   level4: Level4GlobalMetrics;
   /** Inter-expert ICC on videos with ≥2 expert Level-4 forms */
   interExpert: InterExpertIccMetrics;
+  /** Level 5 report-score mean/SD overall and per video */
+  level5: Level5GlobalMetrics;
 };
 
 type Level1FormSignals = {
@@ -295,6 +307,12 @@ export function computeGlobalGradingMetrics(
         gradingData: r.gradingData,
       })),
   );
+  const level5 = computeLevel5GlobalMetrics(
+    rows.map((r) => ({
+      videoOutputId: r.videoOutputId,
+      gradingData: r.gradingData,
+    })),
+  );
 
   return {
     formCount: rows.length,
@@ -309,6 +327,7 @@ export function computeGlobalGradingMetrics(
       hallucinationTotalCount,
     ),
     interExpert,
+    level5,
   };
 }
 

@@ -28,9 +28,9 @@ import {
 import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import {
-  detectLevel5ProcedureKind,
-  level5ActiveDimensions,
-  level5KindLabel,
+  LEVEL5_AUTO_FAIL_CRITERIA,
+  LEVEL5_DIMENSIONS,
+  LEVEL5_MAX_TOTAL,
   level5ScoreFromGrading,
 } from "@/lib/level5Dimensions";
 import { Level5ReportView } from "@/components/grading/Level5ReportView";
@@ -229,142 +229,200 @@ function IncorrectReasonRadios({
 
 function Level5Card({
   parsedReport,
-  procedureType,
   register,
   watch,
   completed,
   hasError,
-  isHot,
-  DiscSolve,
 }: {
   parsedReport: string;
-  procedureType: string;
   register: UseFormRegister<GradingForm>;
   watch: UseFormWatch<GradingForm>;
   completed?: boolean;
   hasError: (id: string) => boolean;
-  isHot: (path: string) => boolean;
-  DiscSolve: (props: { path: string }) => React.ReactNode;
 }) {
-  const kind = detectLevel5ProcedureKind(procedureType);
-  const active = level5ActiveDimensions(kind);
-  const watched = watch("level5.dimensions");
+  const watchedDims = watch("level5.dimensions");
+  const watchedAutoFail = watch("level5.autoFail");
+  const watchedAutoRemarks = watch("level5.autoFailRemarks");
   const score = level5ScoreFromGrading({
     level5: {
-      procedureKind: kind,
-      dimensions: active.map((d) => ({
+      autoFail: watchedAutoFail,
+      autoFailRemarks: watchedAutoRemarks,
+      dimensions: LEVEL5_DIMENSIONS.map((d) => ({
         key: d.key,
-        judgement: watched?.[d.key]?.judgement,
+        score: watchedDims?.[d.key]?.score,
+        errors: watchedDims?.[d.key]?.errors,
+        remarks: watchedDims?.[d.key]?.remarks,
       })),
     },
   });
-
-  const groups = [
-    {
-      id: "approach",
-      title: "5.1 Approach and procedure",
-      cue: "Check against Step-by-Step Narrative",
-      items: active.filter((d) => d.group === "approach"),
-    },
-    {
-      id: "outcomes",
-      title: "5.2 Key clinical results and quantitative data",
-      cue: "Check against Surgical Findings and Step-by-Step Narrative",
-      items: active.filter((d) => d.section === "5.2"),
-    },
-    {
-      id: "events",
-      title: "5.3 Intraoperative events and complications",
-      cue: "Check against Surgical Findings and Complications / Estimated Blood Loss",
-      items: active.filter((d) => d.group === "events"),
-    },
-    {
-      id: "closure",
-      title: "5.4 Closure and final status",
-      cue: "Check against the end of Step-by-Step Narrative and Anesthesia / Hemostasis",
-      items: active.filter((d) => d.group === "closure"),
-    },
-  ].filter((g) => g.items.length > 0);
 
   return (
     <div className="grading-card" id={gradingFieldDomId("l5-report")}>
       <div className="grading-card-title">Level 5 — Operative Report</div>
       <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
-        Read the AI operative report first (the trailing expert-evaluation stub
-        is removed). Score only the fields for this video&apos;s procedure
-        type. Correct includes true negatives. Report score = number of Correct
-        items / {score.total}.
+        Read the AI Level 5 output first (free-form; no fixed headings
+        required), then score the six VLM-alignment dimensions (max{" "}
+        {LEVEL5_MAX_TOTAL}). A critical auto-fail zeros the entire report
+        score. Level 5 is scored independently — it is not part of the
+        three-expert discrepancy regrade.
       </p>
-      <p className="muted" style={{ fontSize: 13, marginTop: -4, marginBottom: 12 }}>
-        AI procedure type: {procedureType.trim() || "—"} · 5.2 form:{" "}
-        {level5KindLabel(kind)}
-      </p>
+
       <Level5ReportView report={parsedReport} />
 
-      {groups.map((g) => (
-        <div key={g.id} style={{ marginTop: 8 }}>
-          <div style={{ fontWeight: 700, margin: "8px 0 2px" }}>{g.title}</div>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-            {g.cue}
-          </div>
-          {g.items.map((d) => {
-            const path = `level5.dimensions.${d.key}.judgement`;
-            const err = hasError(`l5-${d.key}`);
-            return (
-              <FieldAnchor
-                key={d.key}
-                id={`l5-${d.key}`}
-                error={err}
-                highlight={isHot(path)}
-                style={{ marginBottom: 8, padding: 8 }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <div>
-                    <strong>{d.label}</strong>
-                    {d.hint ? (
-                      <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                        {d.hint}
-                      </span>
-                    ) : null}
-                  </div>
-                  <DiscSolve path={path} />
-                </div>
-                <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                  {(
-                    [
-                      ["correct", "Correct (including true negative)"],
-                      [
-                        "hallucinate",
-                        "Not Mentioned but Hallucinate (not in the video, but written in the report)",
-                      ],
-                      [
-                        "missed",
-                        "Mentioned but Missed (in the video, but not written in the report)",
-                      ],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <label key={value} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13 }}>
-                      <input
-                        type="radio"
-                        value={value}
-                        {...register(path as any, { required: true })}
-                        disabled={completed}
-                        style={{ marginTop: 2 }}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
-              </FieldAnchor>
-            );
-          })}
-        </div>
-      ))}
+      <div style={{ fontWeight: 700, margin: "16px 0 8px" }}>
+        Expert evaluation rubric
+      </div>
+
+      {LEVEL5_DIMENSIONS.map((d, idx) => {
+        const base = `level5.dimensions.${d.key}`;
+        const scorePath = `${base}.score`;
+        const scoreErr = hasError(`l5-${d.key}-score`);
+        return (
+          <FieldAnchor
+            key={d.key}
+            id={`l5-${d.key}-score`}
+            error={scoreErr}
+            style={{
+              marginBottom: 12,
+              padding: 10,
+              border: "1px solid var(--border, #e5e7eb)",
+              borderRadius: 8,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+              {idx + 1}. {d.label}
+              <span className="muted" style={{ marginLeft: 8, fontWeight: 500, fontSize: 12 }}>
+                Max {d.maxWeight}
+              </span>
+            </div>
+            <ul
+              className="muted"
+              style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 12 }}
+            >
+              {d.criteria.map((c) => (
+                <li key={c} style={{ marginBottom: 4 }}>
+                  {c}
+                </li>
+              ))}
+            </ul>
+
+            <label style={{ display: "grid", gap: 4, marginBottom: 8, fontSize: 13 }}>
+              Score (0–{d.maxWeight})
+              <input
+                type="number"
+                min={0}
+                max={d.maxWeight}
+                step={1}
+                {...register(scorePath as any, {
+                  required: true,
+                  valueAsNumber: true,
+                  min: 0,
+                  max: d.maxWeight,
+                })}
+                disabled={completed}
+                style={{ maxWidth: 120 }}
+              />
+            </label>
+
+            <div style={{ fontSize: 13, marginBottom: 4, fontWeight: 600 }}>
+              Error annotation
+            </div>
+            <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+              {d.errors.map((e) => {
+                const errPath = `${base}.errors.${e.key}`;
+                return (
+                  <label
+                    key={e.key}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      fontSize: 13,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      {...register(errPath as any)}
+                      disabled={completed}
+                    />
+                    <span>{e.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+              Remarks
+              <textarea
+                rows={2}
+                {...register(`${base}.remarks` as any)}
+                disabled={completed}
+                placeholder="Optional notes for this dimension"
+              />
+            </label>
+          </FieldAnchor>
+        );
+      })}
+
+      <FieldAnchor
+        id="l5-autoFail"
+        error={hasError("l5-autoFail")}
+        style={{
+          marginBottom: 12,
+          padding: 10,
+          border: "1px solid #f9a8d4",
+          borderRadius: 8,
+          background: "#fdf2f8",
+        }}
+      >
+        <strong>Critical auto-fail</strong>
+        <p className="muted" style={{ fontSize: 12, margin: "6px 0 10px" }}>
+          {LEVEL5_AUTO_FAIL_CRITERIA}
+        </p>
+        <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend style={{ fontSize: 13, fontWeight: 600 }}>
+            Apply auto-fail (report score = 0)?
+          </legend>
+          <label style={{ marginRight: 12, fontSize: 13 }}>
+            <input
+              type="radio"
+              value="yes"
+              {...register("level5.autoFail" as any, { required: true })}
+              disabled={completed}
+            />{" "}
+            Yes
+          </label>
+          <label style={{ fontSize: 13 }}>
+            <input
+              type="radio"
+              value="no"
+              {...register("level5.autoFail" as any, { required: true })}
+              disabled={completed}
+            />{" "}
+            No
+          </label>
+        </fieldset>
+        <label style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 13 }}>
+          Auto-fail remarks
+          <textarea
+            rows={2}
+            {...register("level5.autoFailRemarks" as any)}
+            disabled={completed}
+            placeholder="Required if auto-fail is Yes (recommended)"
+          />
+        </label>
+      </FieldAnchor>
 
       <div className="grading-metrics" style={{ marginTop: 8 }}>
-        Report score: <strong>{score.reportScore}</strong>
+        Report score:{" "}
+        <strong>
+          {score.autoFail ? 0 : score.reportScore}
+        </strong>
         <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-          / {score.total}
+          / {LEVEL5_MAX_TOTAL}
+          {score.autoFail
+            ? " (auto-fail)"
+            : ` · dimension sum ${score.dimensionSum}`}
         </span>
       </div>
     </div>
@@ -1762,13 +1820,10 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
 
       <Level5Card
         parsedReport={parsed.level5?.report ?? ""}
-        procedureType={parsed.level1?.procedureType ?? ""}
         register={register}
         watch={watch}
         completed={completed}
         hasError={hasError}
-        isHot={isHot}
-        DiscSolve={DiscSolve}
       />
 
       {incompleteBanner}
