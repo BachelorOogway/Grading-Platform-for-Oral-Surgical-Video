@@ -149,6 +149,26 @@ export default function DashboardPage() {
     );
   }
 
+  const discByVideo = new Map<
+    string,
+    { id: string; videoOutputId: string; mySubmitted: boolean }
+  >();
+  for (const d of discrepancies) {
+    const prev = discByVideo.get(d.videoOutputId);
+    if (!prev) {
+      discByVideo.set(d.videoOutputId, {
+        id: d.id,
+        videoOutputId: d.videoOutputId,
+        mySubmitted: Boolean(d.mySubmitted),
+      });
+    } else if (!d.mySubmitted) {
+      prev.mySubmitted = false;
+    }
+  }
+  const discVideoRows = [...discByVideo.values()].sort((a, b) =>
+    a.videoOutputId.localeCompare(b.videoOutputId, undefined, { numeric: true }),
+  );
+
   return (
     <main className="app-shell">
       <div className="app-shell-inner">
@@ -170,48 +190,29 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        {discrepancies.length > 0 ? (
+        {discVideoRows.length > 0 ? (
           <section className="section-block" style={{ borderColor: "#f9a8d4" }}>
             <h2 className="section-title">Discrepancy solve · 需进一步处理</h2>
             <p className="page-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-              每条 discrepancy 单独列出；同一视频的多项会在同一个对照表单中一起处理。
-              提交后返回此页。已提交 solve 的专家，其列会直接显示 solve 之后的结果。
+              仅按视频编号列出。同一视频的全部 discrepancy 会在同一个对照表单中一起处理。
             </p>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
-              {discrepancies.map((d) => (
-                <li
-                  key={d.id}
-                  style={{
-                    background: "#fce7f3",
-                    border: "1px solid #f9a8d4",
-                    borderRadius: 8,
-                    padding: 12,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
-                      Video: {d.videoOutputId}
-                    </div>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>
-                      {d.fieldLabel}
-                    </div>
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      已提交 {d.submittedCount ?? 0}/{d.total ?? 3}
-                      {d.mySubmitted ? " · 你已提交" : " · 待你提交"}
-                    </div>
-                  </div>
+            <ul className="task-list">
+              {discVideoRows.map((v) => (
+                <li key={v.videoOutputId}>
                   <button
                     type="button"
-                    className="btn btn-primary"
-                    style={{ fontSize: 12 }}
-                    onClick={() => router.push(`/discrepancies/${d.id}`)}
+                    className="task-btn"
+                    onClick={() => router.push(`/discrepancies/${v.id}`)}
                   >
-                    打开对照重评
+                    <span className="task-btn-title">{v.videoOutputId}</span>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span
+                        className={`badge ${v.mySubmitted ? "badge-ok" : "badge-warn"}`}
+                      >
+                        {v.mySubmitted ? "已提交" : "待提交"}
+                      </span>
+                      <span className="task-btn-meta">打开对照重评</span>
+                    </span>
                   </button>
                 </li>
               ))}
