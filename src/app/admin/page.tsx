@@ -138,6 +138,28 @@ export default function AdminPage() {
       gradingCount?: number;
     }[]
   >([]);
+  const [progress, setProgress] = useState<{
+    summary: {
+      expertCount: number;
+      videoCount: number;
+      fullSlots: number;
+      fullyGraded: number;
+      claimed: number;
+      completed: number;
+      pending: number;
+    };
+    experts: Array<{
+      expertId: string;
+      name: string;
+      claimed: number;
+      completed: number;
+      pending: number;
+      regrade: number;
+      pendingVideos: string[];
+      completedVideos: string[];
+    }>;
+  } | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
   const [expertName, setExpertName] = useState("");
   const [expertPassword, setExpertPassword] = useState("");
   const [expertInfo, setExpertInfo] = useState<string | null>(null);
@@ -160,6 +182,24 @@ export default function AdminPage() {
       rangeEnd: 200,
     },
   });
+
+  const loadProgress = useCallback(async () => {
+    setProgressLoading(true);
+    try {
+      const res = await fetch("/api/admin/progress", { credentials: "include" });
+      if (res.status === 401) {
+        setUnlocked(false);
+        setProgress(null);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setProgress(data.experts ? data : null);
+    } catch {
+      setProgress(null);
+    } finally {
+      setProgressLoading(false);
+    }
+  }, []);
 
   const loadExperts = useCallback(async () => {
     try {
@@ -246,7 +286,8 @@ export default function AdminPage() {
     loadGradings();
     loadGlobalMetrics();
     loadExperts();
-  }, [unlocked, resetConfig, loadGradings, loadGlobalMetrics, loadExperts]);
+    loadProgress();
+  }, [unlocked, resetConfig, loadGradings, loadGlobalMetrics, loadExperts, loadProgress]);
 
   async function onCreateExpert(e: React.FormEvent) {
     e.preventDefault();
@@ -312,7 +353,12 @@ export default function AdminPage() {
             ? `：任务 ${data.deletedAssignments ?? 0}、评分 ${data.deletedGradings ?? 0}`
             : ""),
       );
-      await Promise.all([loadExperts(), loadGradings(), loadGlobalMetrics()]);
+      await Promise.all([
+        loadExperts(),
+        loadGradings(),
+        loadGlobalMetrics(),
+        loadProgress(),
+      ]);
     } catch (err) {
       setExpertInfo(`删除失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -354,6 +400,7 @@ export default function AdminPage() {
     setUnlocked(false);
     setGradings([]);
     setGlobalMetrics(null);
+    setProgress(null);
   }
   async function onRequestRegrade(item: GradingListItem) {
     const note = window.prompt(
@@ -380,7 +427,7 @@ export default function AdminPage() {
         return;
       }
       setRegradeInfo(data.message || "已退回要求重评");
-      await Promise.all([loadGradings(), loadGlobalMetrics()]);
+      await Promise.all([loadGradings(), loadGlobalMetrics(), loadProgress()]);
     } catch (err) {
       setRegradeInfo(`退回失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -680,6 +727,77 @@ export default function AdminPage() {
             <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
               暂无专家账号。
             </p>
+          )}
+        </section>
+
+        <section className="section-block">
+          <div className="page-header-row">
+            <h2 className="section-title" style={{ margin: 0 }}>
+              专家打分进度
+            </h2>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={progressLoading}
+              onClick={() => void loadProgress()}
+            >
+              {progressLoading ? "刷新中..." : "刷新"}
+            </button>
+          </div>
+          <p className="page-lead" style={{ marginTop: 10, marginBottom: 12 }}>
+            每位专家已认领、已提交、仍待完成的视频。每个视频最多 3 位专家。
+          </p>
+          {progress ? (
+            <div className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+              专家 {progress.summary.expertCount} · 已上传视频 {progress.summary.videoCount} ·
+              认领满 3 人 {progress.summary.fullSlots} · 三人已交 {progress.summary.fullyGraded} ·
+              已提交 {progress.summary.completed} / 已认领 {progress.summary.claimed} · 待完成{" "}
+              {progress.summary.pending}
+            </div>
+          ) : null}
+          {progressLoading && !progress ? (
+            <div className="muted">加载中...</div>
+          ) : !progress || progress.experts.length === 0 ? (
+            <div className="muted">暂无专家进度。</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["专家", "已认领", "已提交", "待完成", "需重评", "待完成视频"].map((h) => (
+                      <th
+                        key={h}
+                        style={{
+                          textAlign: h === "专家" || h === "待完成视频" ? "left" : "right",
+                          padding: "6px 8px",
+                          borderBottom: "1px solid #e5e7eb",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {progress.experts.map((ex) => (
+                    <tr key={ex.expertId}>
+                      <td style={{ padding: "6px 8px", verticalAlign: "top" }}>
+                        <div style={{ fontWeight: 700 }}>{ex.name}</div>
+                        <div className="muted">{ex.expertId}</div>
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>{ex.claimed}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>{ex.completed}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>{ex.pending}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px" }}>{ex.regrade}</td>
+                      <td className="muted" style={{ padding: "6px 8px", maxWidth: 420 }}>
+                        {ex.pendingVideos.length > 0 ? ex.pendingVideos.join(", ") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
