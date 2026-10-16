@@ -259,8 +259,9 @@ function Level5Card({
     <div className="grading-card" id={gradingFieldDomId("l5-report")}>
       <div className="grading-card-title">Level 5 — Operative Report</div>
       <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
-        Read the AI Level 5 output first (free-form; no fixed headings
-        required), then score the six VLM-alignment dimensions (max{" "}
+        Read the AI Level 5 output —operative report first (free-form; no
+        fixed headings required), then score the six VLM-alignment dimensions
+        (max{" "}
         {LEVEL5_MAX_TOTAL}). A critical auto-fail zeros the entire report
         score. Level 5 is scored independently — it is not part of the
         three-expert discrepancy regrade.
@@ -268,9 +269,12 @@ function Level5Card({
 
       <Level5ReportView report={parsedReport} />
 
-      <div style={{ fontWeight: 700, margin: "16px 0 8px" }}>
+      <div style={{ fontWeight: 700, margin: "16px 0 4px" }}>
         Expert evaluation rubric
       </div>
+      <p className="page-lead" style={{ marginBottom: 8, fontSize: 13 }}>
+        Please score the quality of the operative report in following dimensions.
+      </p>
 
       {LEVEL5_DIMENSIONS.map((d, idx) => {
         const base = `level5.dimensions.${d.key}`;
