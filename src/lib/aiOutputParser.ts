@@ -323,10 +323,15 @@ function parseLevel3(text: string): AiParsedData["level3"] {
   };
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Parse Level 4 score blocks. Tolerant of:
  * - case / punctuation / extra spaces in dimension titles
  * - newlines inside justifications
+ * - several dimensions packed onto one line
  * - alternate titles (see LEVEL4_DIMENSIONS.aliases)
  *
  * Expected shape per dimension:
@@ -339,10 +344,6 @@ function parseLevel4(text: string): AiParsedData["level4"] {
   );
   const section = sectionMatch?.[0] ?? "";
 
-  // Anchor each "Label: score -" on a single line (labels never span newlines).
-  const anchorRe =
-    /(^|[\r\n])[ \t]*([A-Za-z][A-Za-z0-9/()'&., \t-]{1,100}?)[ \t]*:[ \t]*(\d)[ \t]*[-–—][ \t]*/g;
-
   type Anchor = {
     label: string;
     score: number;
@@ -350,21 +351,33 @@ function parseLevel4(text: string): AiParsedData["level4"] {
     matchStart: number;
   };
   const anchors: Anchor[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = anchorRe.exec(section))) {
-    const label = safeTrim(m[2]);
-    if (/^level\s*4/i.test(label)) continue;
-    if (/human\s+expert/i.test(label)) continue;
-    if (/expert\s+given\s+score/i.test(label)) continue;
-    const score = Number(m[3]);
-    if (!Number.isFinite(score)) continue;
-    anchors.push({
-      label,
-      score,
-      bodyStart: m.index + m[0].length,
-      matchStart: m.index,
-    });
+
+  // Match known titles anywhere (same line or new line). A line-start-only
+  // scan drops every dimension after the first when the model emits them inline.
+  for (const def of LEVEL4_DIMENSIONS) {
+    const aliases = [...def.aliases].sort((a, b) => b.length - a.length);
+    for (const alias of aliases) {
+      const flex = escapeRegExp(alias).replace(/\s+/g, "\\s+");
+      const re = new RegExp(
+        `(?:^|[\\r\\n]|\\s)(${flex})\\s*:\\s*(\\d)\\s*[-–—]\\s*`,
+        "i",
+      );
+      const m = re.exec(section);
+      if (!m || m.index === undefined) continue;
+      const score = Number(m[2]);
+      if (!Number.isFinite(score)) continue;
+      const labelAt = m[0].indexOf(m[1]);
+      anchors.push({
+        label: safeTrim(m[1]),
+        score,
+        bodyStart: m.index + m[0].length,
+        matchStart: m.index + (labelAt < 0 ? 0 : labelAt),
+      });
+      break;
+    }
   }
+
+  anchors.sort((a, b) => a.matchStart - b.matchStart);
 
   const found = new Map<string, AiLevel4Dimension>();
   for (let i = 0; i < anchors.length; i++) {
@@ -399,8 +412,13 @@ function parseLevel4(text: string): AiParsedData["level4"] {
 }
 
 function parseLevel5(text: string): AiParsedData["level5"] {
-  const m = /Level\s*5\b[^\n]*\r?\n?([\s\S]*)$/i.exec(text ?? "");
-  const body = (m?.[1] ?? "").split(/\[Human\s+Expert\s+Evaluation/i)[0].trim();
+  const m = /Level\s*5\b([\s\S]*)$/i.exec(text ?? "");
+  let body = m?.[1] ?? "";
+  // Drop the heading remainder, including when the report starts on the same line
+  // after "Level 5 Analysis (Operative Report Generation)".
+  body = body.replace(/^[^\n]*?(?:\)|(?=\r?\n))/, "");
+  body = body.replace(/^\r?\n/, "");
+  body = body.split(/\[Human\s+Expert\s+Evaluation/i)[0].trim();
   return { report: body };
 }
 
