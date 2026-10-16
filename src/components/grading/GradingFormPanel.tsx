@@ -211,7 +211,7 @@ function IncorrectReasonRadios({
           disabled={disabled}
           style={{ marginTop: 2 }}
         />
-        <span>hallucinates when the target is absent</span>
+        <span>hallucination</span>
       </label>
       <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13 }}>
         <input
@@ -221,7 +221,7 @@ function IncorrectReasonRadios({
           disabled={disabled}
           style={{ marginTop: 2 }}
         />
-        <span>misrecognition when the target is present</span>
+        <span>misrecognition</span>
       </label>
     </div>
   );
@@ -325,7 +325,7 @@ function Level5Card({
             </label>
 
             <div style={{ fontSize: 13, marginBottom: 4, fontWeight: 600 }}>
-              Error annotation
+              Defect tag (if any)
             </div>
             <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
               {d.errors.map((e) => {
@@ -838,14 +838,14 @@ export function GradingFormPanel({
             Hallucination rate:{" "}
             <strong>{formatMetric(metrics.structures.hallucinationRate)}</strong>
             <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-              (= hallucination_absent / total)
+              (= hallucination / total)
             </span>
           </div>
           <div>
             Misrecognition rate:{" "}
             <strong>{formatMetric(metrics.structures.misrecognitionRate)}</strong>
             <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-              (= misrecognition_present / total)
+              (= misrecognition / total)
             </span>
           </div>
         </div>
@@ -985,14 +985,14 @@ export function GradingFormPanel({
             Hallucination rate:{" "}
             <strong>{formatMetric(metrics.instruments.hallucinationRate)}</strong>
             <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-              (= hallucination_absent / total)
+              (= hallucination / total)
             </span>
           </div>
           <div>
             Misrecognition rate:{" "}
             <strong>{formatMetric(metrics.instruments.misrecognitionRate)}</strong>
             <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-              (= misrecognition_present / total)
+              (= misrecognition / total)
             </span>
           </div>
           <div>
@@ -1163,14 +1163,8 @@ export function GradingFormPanel({
                   </div>
                   {(
                     [
-                      [
-                        "hallucination_absent",
-                        "hallucinates when the target is absent",
-                      ],
-                      [
-                        "misrecognition_present",
-                        "misrecognition when the target is present",
-                      ],
+                      ["hallucination_absent", "hallucination"],
+                      ["misrecognition_present", "misrecognition"],
                     ] as const
                   ).map(([value, label], idx) => {
                     const reg =
@@ -1403,7 +1397,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                   {formatMetric(contentMetrics.contentHallucinationRate)}
                 </strong>
                 <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-                  (= hallucination_absent / N)
+                  (= hallucination / N)
                 </span>
               </div>
               <div>
@@ -1412,7 +1406,7 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                   {formatMetric(contentMetrics.contentMisrecognitionRate)}
                 </strong>
                 <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-                  (= misrecognition_present / N)
+                  (= misrecognition / N)
                 </span>
               </div>
             </div>

@@ -2,6 +2,13 @@
 
 import type { ReactNode } from "react";
 
+function reasonLabel(v: unknown): string {
+  if (v === "hallucination_absent") return "hallucination";
+  if (v === "misrecognition_present") return "misrecognition";
+  if (v == null || v === "") return "";
+  return String(v);
+}
+
 function yn(v: unknown): string {
   if (v === true || v === "correct" || v === "yes" || v === "Yes") return "Correct / Yes";
   if (v === false || v === "incorrect" || v === "no" || v === "No") return "Incorrect / No";
@@ -53,7 +60,7 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
             {structures.map((s, i) => (
               <li key={i}>
                 {s.name || `Structure ${i + 1}`}: {yn(s.correct)}
-                {s.incorrectReason ? ` (${s.incorrectReason})` : ""}
+                {s.incorrectReason ? ` (${reasonLabel(s.incorrectReason)})` : ""}
               </li>
             ))}
           </ul>
@@ -67,7 +74,7 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
             {instruments.map((s, i) => (
               <li key={i}>
                 {s.name || `Instrument ${i + 1}`}: {yn(s.correct)}
-                {s.incorrectReason ? ` (${s.incorrectReason})` : ""}
+                {s.incorrectReason ? ` (${reasonLabel(s.incorrectReason)})` : ""}
               </li>
             ))}
           </ul>
@@ -104,7 +111,7 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
                 {p.trueStartTime || "?"}–{p.trueEndTime || "?"}
                 <br />
                 Seg {yn(p.segmentationCorrect)} · Content {yn(p.contentCorrect)}
-                {p.phaseErrorType ? ` · ${p.phaseErrorType}` : ""}
+                {p.phaseErrorType ? ` · ${reasonLabel(p.phaseErrorType)}` : ""}
                 {p.temporalIoU != null ? ` · tIoU ${p.temporalIoU}` : ""}
               </li>
             ))}

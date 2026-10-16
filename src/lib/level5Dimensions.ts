@@ -19,15 +19,15 @@ export type Level5DimensionDef = {
 export const LEVEL5_DIMENSIONS: Level5DimensionDef[] = [
   {
     key: "visualFeatures",
-    label: "Visual Features & Anatomical Recognition",
+    label: "Visual Features & Anatomical Reality",
     maxWeight: 20,
     criteria: [
-      "Hallucination Detection: Written structures or pathological states must realistically exist in the video.",
-      "Visual Alignment: Accurately identifies spatial orientation, morphology, and anatomical relationships without misrecognition.",
+      "Hallucination Detection: Every anatomical structure and pathology described must truly exist within the video context.",
+      "Visual Grounding: Accurately maps positions, orientations, and structural relationships without cross-modal spatial mismatch.",
     ],
     errors: [
       { key: "visualHallucination", label: "Visual Hallucination" },
-      { key: "orientationError", label: "Orientation Error" },
+      { key: "spatialMismatch", label: "Spatial Mismatch" },
     ],
   },
   {
@@ -35,62 +35,64 @@ export const LEVEL5_DIMENSIONS: Level5DimensionDef[] = [
     label: "Core Actions & Temporal Flow Alignment",
     maxWeight: 20,
     criteria: [
-      "Temporal Correctness: The sequence of surgical steps in the text must perfectly align with the video timeline.",
-      "Core Action Capture: Accurately identifies primary surgical manipulations without omission or illogical temporal skips.",
+      "Timeline Adherence: Chronological order of events in the text must perfectly align with the video sequence.",
+      "Phase Capture: Reliably identifies transitions and milestones, ensuring no key segments are skipped or skipped backward.",
     ],
     errors: [
-      { key: "sequenceInversion", label: "Sequence Inversion" },
+      { key: "temporalInversion", label: "Temporal Inversion" },
       { key: "coreStepOmission", label: "Core Step Omission" },
     ],
   },
   {
-    key: "surgicalIntent",
-    label: "Surgical Intent & Dynamic Deduction",
+    key: "tacticalIntent",
+    label: "Tactical Intent & Dynamic Decision Logic",
     maxWeight: 15,
     criteria: [
-      "Clinical Reasoning: Evaluates if the VLM infers the 'why' behind action shifts or exploratory movements seen in the video, rather than just mechanically listing raw tool-tissue interactions.",
+      "Action-to-Intent Derivation: Captures clinical reasoning rather than just replaying pixel changes (e.g., explaining why a route was switched).",
+      "Adaptive Contextualization: Tracks shifts in operative pathways based on real-time findings.",
     ],
     errors: [
-      { key: "lackOfCausalInference", label: "Lack of Causal Inference" },
-      { key: "mechanicalReplayOnly", label: "Mechanical Replay Only" },
+      { key: "missingCausalLogic", label: "Missing Causal Logic" },
+      { key: "mechanicalReplay", label: "Mechanical Replay" },
     ],
   },
   {
     key: "anomalousEvents",
-    label: "Anomalous Events & Rare State Capture",
+    label: "Anomalous Events & Exceptional Handling",
     maxWeight: 20,
     criteria: [
-      "Sensitivity to Variations: VLM must detect unexpected events (e.g., bleeding, anatomical anomalies, or difficulty) and completely log the subsequent troubleshooting loop to closure.",
+      "Event Sensitivity: Recognizes unexpected or sparse occurrences (e.g., sudden bleeding, tissue resistance, structural difficulties).",
+      "Closure Resolution: Tracks the event until a stable clinical resolution is verified visually.",
     ],
     errors: [
-      { key: "rareEventOmission", label: "Rare Event Omission" },
+      { key: "anomalousEventOmission", label: "Anomalous Event Omission" },
       { key: "unresolvedLogicLoop", label: "Unresolved Logic Loop" },
     ],
   },
   {
-    key: "quantitativeItems",
-    label: "Quantitative Items & Counting Closure",
+    key: "ergonomicsInstrument",
+    label: "Ergonomics & Instrument Interaction",
     maxWeight: 10,
     criteria: [
-      "Counting Accuracy: Absolute numbers of specimen resections, implants, or specialized instruments used in the video must match the text exactly.",
-      "Data Consistency: No internal textual contradictions.",
+      "Instrument Identification: Accurately specifies the classes or types of tools/devices introduced into the surgical field.",
+      "Tool-Tissue Mapping: Correctly describes the interaction dynamics between active instruments and anatomical target surfaces.",
     ],
     errors: [
-      { key: "countingQuantityError", label: "Counting/Quantity Error" },
-      { key: "internalInconsistency", label: "Internal Inconsistency" },
+      { key: "instrumentRecognitionError", label: "Instrument Recognition Error" },
+      { key: "misalignedToolInteraction", label: "Misaligned Tool Interaction" },
     ],
   },
   {
-    key: "narrativeStructure",
-    label: "Narrative Structure & Medical Registers",
+    key: "textualRegister",
+    label: "Textual Register & Medical Nomenclature",
     maxWeight: 15,
     criteria: [
-      "Structural Standardization: Compliance with structured clinical templates (e.g., structured subheadings) over plain essay outputs.",
-      "Terminology Precision: Standard medical nomenclature instead of literal translations or colloquial phrasing.",
+      "Professional Taxonomy: Deploys proper clinical and surgical terminology without colloquially translated artifacts.",
+      "Structural Consistency: Conforms to expected technical report prose formats rather than standard conversational prose.",
     ],
     errors: [
-      { key: "structuralDisarray", label: "Structural Disarray" },
-      { key: "nonStandardRegister", label: "Non-Standard Register" },
+      { key: "nonStandardNomenclature", label: "Non-Standard Nomenclature" },
+      { key: "unstructuredProse", label: "Unstructured Prose" },
     ],
   },
 ];
@@ -103,7 +105,7 @@ export const LEVEL5_MAX_TOTAL = LEVEL5_DIMENSIONS.reduce(
 );
 
 export const LEVEL5_AUTO_FAIL_CRITERIA =
-  "Any critical directional error (e.g., reversing left/right lateralities, severe absolute hallucinations completely divorced from the video, or omission of major patient safety complications) will result in an immediate score of 0 for the entire report.";
+  "If the generated report exhibits catastrophic directional hallucinations (e.g., wrong quadrant, inverted anatomical sides, or completely fabricated surgical arches) or completely overlooks a critical patient safety incident shown in the video, the total evaluation score collapses immediately to 0.";
 
 export function level5LabelForKey(key: string): string {
   return LEVEL5_DIMENSIONS.find((d) => d.key === key)?.label ?? key;

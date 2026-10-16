@@ -108,8 +108,8 @@ function displayValue(path: string, raw: unknown): string {
     if (path.includes("safetyCheckPass")) return "Fail";
     return "Incorrect";
   }
-  if (raw === "hallucination_absent") return "hallucination (absent)";
-  if (raw === "misrecognition_present") return "misrecognition (present)";
+  if (raw === "hallucination_absent") return "hallucination";
+  if (raw === "misrecognition_present") return "misrecognition";
   if (raw === "yes") return "Yes";
   if (raw === "no") return "No";
   if (raw === "pass") return "Pass";
@@ -528,8 +528,8 @@ export function getDiscrepancyChoices(
     fieldPath.includes("phaseErrorType")
   ) {
     return [
-      { value: "hallucination_absent", label: "Hallucination (absent)" },
-      { value: "misrecognition_present", label: "Misrecognition (present)" },
+      { value: "hallucination_absent", label: "hallucination" },
+      { value: "misrecognition_present", label: "misrecognition" },
     ];
   }
   return [

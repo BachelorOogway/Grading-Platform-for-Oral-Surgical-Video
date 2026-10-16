@@ -21,8 +21,8 @@ export type Correctness = "correct" | "incorrect";
 
 /** Incorrect 细分原因 */
 export type IncorrectReason =
-  | "hallucination_absent" // hallucinates when the target is absent
-  | "misrecognition_present"; // misrecognition when the target is present
+  | "hallucination_absent"
+  | "misrecognition_present";
 
 export type ItemJudgement = {
   correct: Correctness;
@@ -54,10 +54,7 @@ export type Level2PhaseForm = {
   segmentationCorrect: Correctness;
   /** Is the phase content / description correct? */
   contentCorrect: Correctness;
-  /**
-   * Shown only when content is Incorrect.
-   * hallucinates when the target is absent | misrecognition when the target is present
-   */
+  /** Shown only when content is Incorrect: hallucination | misrecognition */
   phaseErrorType: Level2PhaseErrorType;
   /** Correct description when content is incorrect (esp. misrecognition) */
   expertCorrectDescription: string;
