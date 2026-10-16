@@ -10,7 +10,6 @@ import {
   missedInstrumentCountOf,
   missedInstrumentNames,
 } from "@/lib/categoricalFields";
-import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 import {
   computeLevel2ContentMetrics,
   computeLevel2TemporalMetrics,
@@ -42,12 +41,6 @@ function asObject(raw: unknown): any {
   if (typeof raw === "string") return parseJsonSafe(raw, {}) ?? {};
   if (raw && typeof raw === "object") return raw;
   return {};
-}
-
-function ynHall(v: unknown): "yes" | "no" | "" {
-  if (v === true || v === "yes" || v === "Yes") return "yes";
-  if (v === false || v === "no" || v === "No") return "no";
-  return "";
 }
 
 function expertScoreOf(grading: any, key: string): number | null {
@@ -340,58 +333,17 @@ export function buildConsensusGrading(
           100
         : null;
     const prev = dimMap.get(def.key) ?? { key: def.key };
-    let hall = prev.aiJustificationHallucination;
-    if (hall !== true && hall !== false && hall !== "yes" && hall !== "no") {
-      const votes = gradings.map((g) =>
-        ynHall(
-          getCategoricalRaw(
-            g,
-            `level4.dimensions.${def.key}.aiJustificationHallucination`,
-          ),
-        ),
-      );
-      const yes = votes.filter((v) => v === "yes").length;
-      const no = votes.filter((v) => v === "no").length;
-      hall = yes > no ? true : no > yes ? false : hall;
-    }
     dimMap.set(def.key, {
       ...prev,
       key: def.key,
       label: def.label,
       expertScore: avg,
-      aiJustificationHallucination:
-        hall === true || hall === "yes"
-          ? true
-          : hall === false || hall === "no"
-            ? false
-            : hall,
     });
   }
 
   base.level4.dimensions = LEVEL4_DIMENSIONS.map(
     (d) => dimMap.get(d.key) ?? { key: d.key, label: d.label },
   );
-  const hall = computeLevel4HallucinationRate(
-    Object.fromEntries(
-      LEVEL4_DIMENSIONS.map((d) => {
-        const row = dimMap.get(d.key);
-        return [
-          d.key,
-          {
-            aiJustificationHallucination: ynHall(
-              row?.aiJustificationHallucination,
-            ),
-          },
-        ];
-      }),
-    ),
-    LEVEL4_DIMENSIONS.map((d) => d.key),
-  );
-  if (hall) {
-    base.level4.hallucinationRate = hall.rate;
-    base.level4.hallucinationYesCount = hall.yesCount;
-    base.level4.hallucinationTotalCount = hall.totalCount;
-  }
 
   return {
     grading: base,
@@ -413,10 +365,7 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     byVideo.set(row.videoOutputId, list);
   }
 
-  const l4Headers = LEVEL4_DIMENSIONS.flatMap((d) => [
-    `l4_${d.key}_expert_score`,
-    `l4_${d.key}_hallucination`,
-  ]);
+  const l4Headers = LEVEL4_DIMENSIONS.map((d) => `l4_${d.key}_expert_score`);
 
   const headers = [
     "videoOutputId",
@@ -461,7 +410,6 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
     "surgery_completed_expert",
     "safety_check_pass",
     ...l4Headers,
-    "l4_hallucination_rate",
     "l5_report",
     "l5_report_score",
     "l5_max_total",
@@ -596,15 +544,11 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
       if (d?.key) l4ByKey.set(String(d.key), d);
     }
 
-    const l4Cols = LEVEL4_DIMENSIONS.flatMap((def) => {
+    const l4Cols = LEVEL4_DIMENSIONS.map((def) => {
       const d = l4ByKey.get(def.key);
-      const score = d?.expertScore ?? "";
-      const h = ynHall(d?.aiJustificationHallucination);
-      return [score, h];
+      return d?.expertScore ?? "";
     });
 
-    const hallRate =
-      typeof l4.hallucinationRate === "number" ? l4.hallucinationRate : "";
     const l5 = level5ScoreFromGrading(gd);
     const l5gd = gd.level5 ?? {};
 
@@ -660,7 +604,6 @@ export function buildGroundTruthCsv(rows: GroundTruthRowInput[]): string {
             ? "fail"
             : "",
         ...l4Cols,
-        hallRate,
         String(l5gd.report || parsed.level5?.report || ""),
         l5.reportScore,
         l5.maxTotal,

@@ -2,7 +2,6 @@
  * Level 4 OSATS metrics (6 dimensions; Use of Assistants excluded).
  * - AI vs expert: MAE, LCC, SROCC (pooled over forms × dimensions with both scores)
  * - Inter-expert: ICC(2,1) on any video rated by ≥2 experts (Fisher-z averaged)
- * - Hallucination rate: mean of per-form (Yes / labeled dimensions)
  */
 
 export type ScorePair = {
@@ -20,17 +19,6 @@ export type Level4GlobalMetrics = {
   lcc: number | null;
   /** Spearman rank-order correlation coefficient */
   srocc: number | null;
-  /** Forms that contributed a Level 4 hallucination rate */
-  hallucinationFormCount: number;
-  /** Sum of Yes labels across forms */
-  hallucinationYesCount: number;
-  /** Sum of dimension labels across forms */
-  hallucinationTotalCount: number;
-  /**
-   * Mean of per-form hallucination rates
-   * (each form: yesCount / dimensionCount).
-   */
-  meanHallucinationRate: number | null;
 };
 
 export type InterExpertIccMetrics = {
@@ -206,9 +194,6 @@ export function meanAbsoluteError(xs: number[], ys: number[]): number | null {
 export function computeLevel4GlobalMetrics(
   pairs: ScorePair[],
   formCount: number,
-  formHallucinationRates: number[] = [],
-  hallucinationYesCount = 0,
-  hallucinationTotalCount = 0,
 ): Level4GlobalMetrics {
   const ai: number[] = [];
   const expert: number[] = [];
@@ -218,22 +203,12 @@ export function computeLevel4GlobalMetrics(
     expert.push(p.expertScore);
   }
 
-  const nRates = formHallucinationRates.length;
-  const meanHallucinationRate =
-    nRates > 0
-      ? formHallucinationRates.reduce((a, b) => a + b, 0) / nRates
-      : null;
-
   return {
     formCount,
     pairCount: ai.length,
     mae: meanAbsoluteError(ai, expert),
     lcc: linearCorrelation(ai, expert),
     srocc: spearmanCorrelation(ai, expert),
-    hallucinationFormCount: nRates,
-    hallucinationYesCount,
-    hallucinationTotalCount,
-    meanHallucinationRate,
   };
 }
 
@@ -315,75 +290,6 @@ export function level4ScorePairsFromRow(
     }
   }
   return pairs;
-}
-
-export type Level4HallucinationStats = {
-  yesCount: number;
-  totalCount: number;
-  rate: number;
-};
-
-/** Per-form Level 4 justification hallucination rate = Yes / labeled dimensions. */
-export function level4HallucinationFromGradingData(
-  gradingData: unknown,
-): Level4HallucinationStats | null {
-  const l4 = (parseGradingObject(gradingData).level4 ?? {}) as Record<
-    string,
-    unknown
-  >;
-
-  const storedTotal = Number(l4.hallucinationTotalCount);
-  const storedYes = Number(l4.hallucinationYesCount);
-  if (
-    Number.isFinite(storedTotal) &&
-    storedTotal > 0 &&
-    Number.isFinite(storedYes) &&
-    storedYes >= 0
-  ) {
-    const rate =
-      typeof l4.hallucinationRate === "number" &&
-      Number.isFinite(l4.hallucinationRate)
-        ? l4.hallucinationRate
-        : storedYes / storedTotal;
-    return { yesCount: storedYes, totalCount: storedTotal, rate };
-  }
-
-  const dims = Array.isArray(l4.dimensions) ? l4.dimensions : [];
-  let yesCount = 0;
-  let totalCount = 0;
-  for (const d of dims) {
-    if (!d || typeof d !== "object") continue;
-    const hall = (d as { aiJustificationHallucination?: unknown })
-      .aiJustificationHallucination;
-    if (hall === true || hall === "yes" || hall === "Yes") {
-      yesCount += 1;
-      totalCount += 1;
-    } else if (hall === false || hall === "no" || hall === "No") {
-      totalCount += 1;
-    }
-  }
-  if (totalCount <= 0) return null;
-  return { yesCount, totalCount, rate: yesCount / totalCount };
-}
-
-/** Live form helper: Yes count / answered dimensions. */
-export function computeLevel4HallucinationRate(
-  dimensions: Record<string, { aiJustificationHallucination?: string }> | undefined,
-  keys: string[],
-): Level4HallucinationStats | null {
-  let yesCount = 0;
-  let totalCount = 0;
-  for (const key of keys) {
-    const v = dimensions?.[key]?.aiJustificationHallucination;
-    if (v === "yes") {
-      yesCount += 1;
-      totalCount += 1;
-    } else if (v === "no") {
-      totalCount += 1;
-    }
-  }
-  if (totalCount <= 0) return null;
-  return { yesCount, totalCount, rate: yesCount / totalCount };
 }
 
 export type SharedExpertGradingRow = {

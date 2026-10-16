@@ -1043,7 +1043,7 @@ export default function AdminPage() {
 
         <MetricSection
           title="Level 4 · AI vs Expert"
-          lead="全部评分表 × 全部 OSATS 维度（6 维，不含 Use of Assistants）上，AI 分数与专家分数的对齐指标（MAE / LCC / SROCC）及幻觉率。专家表单不展示 AI 分，以免干扰判断。"
+          lead="全部评分表 × 全部 OSATS 维度（6 维，不含 Use of Assistants）上，AI 分数与专家分数的对齐指标（MAE / LCC / SROCC）。专家表单不展示 AI 分，以免干扰判断。"
           loading={metricsLoading}
           empty={!globalMetrics || globalMetrics.formCount === 0}
           summary={
@@ -1069,13 +1069,6 @@ export default function AdminPage() {
                     label: "SROCC",
                     value: formatMetricNumber(globalMetrics.level4.srocc, 3),
                     hint: "Spearman 秩相关",
-                  },
-                  {
-                    label: "Hallucination Rate",
-                    value: formatMetricRate(
-                      globalMetrics.level4.meanHallucinationRate,
-                    ),
-                    hint: `各表 (Yes/维度数) 的平均 · Yes合计 ${globalMetrics.level4.hallucinationYesCount}/${globalMetrics.level4.hallucinationTotalCount} · 表数 ${globalMetrics.level4.hallucinationFormCount}`,
                   },
                 ]
               : []

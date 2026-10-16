@@ -9,7 +9,6 @@ import {
 import {
   computeInterExpertIccMetrics,
   computeLevel4GlobalMetrics,
-  level4HallucinationFromGradingData,
   level4ScorePairsFromRow,
   type InterExpertIccMetrics,
   type Level4GlobalMetrics,
@@ -288,16 +287,6 @@ export function computeGlobalGradingMetrics(
   const level4Pairs = rows.flatMap((r) =>
     level4ScorePairsFromRow(r.gradingData, r.parsedData),
   );
-  const formHallucinationRates: number[] = [];
-  let hallucinationYesCount = 0;
-  let hallucinationTotalCount = 0;
-  for (const r of rows) {
-    const h = level4HallucinationFromGradingData(r.gradingData);
-    if (!h) continue;
-    formHallucinationRates.push(h.rate);
-    hallucinationYesCount += h.yesCount;
-    hallucinationTotalCount += h.totalCount;
-  }
   const interExpert = computeInterExpertIccMetrics(
     rows
       .filter((r) => r.videoOutputId && r.expertId)
@@ -319,13 +308,7 @@ export function computeGlobalGradingMetrics(
     level1: computeLevel1GlobalMetrics(level1Forms),
     level2: computeLevel2GlobalMetrics(level2Forms),
     level3: computeLevel3GlobalMetrics(level3Forms),
-    level4: computeLevel4GlobalMetrics(
-      level4Pairs,
-      rows.length,
-      formHallucinationRates,
-      hallucinationYesCount,
-      hallucinationTotalCount,
-    ),
+    level4: computeLevel4GlobalMetrics(level4Pairs, rows.length),
     interExpert,
     level5,
   };

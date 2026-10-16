@@ -10,7 +10,6 @@ import {
   aiCompletedFromParsedData,
   level3SignalsFromGradingData,
 } from "@/lib/level3Metrics";
-import { level4HallucinationFromGradingData } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import {
   LEVEL5_DIMENSIONS,
@@ -227,20 +226,6 @@ function globalSummaryLines(m: GlobalGradingMetrics): string[] {
     ["level4_global", "lcc", l4.lcc, "", l4.pairCount],
     ["level4_global", "srocc", l4.srocc, "", l4.pairCount],
     [
-      "level4_global",
-      "mean_hallucination_rate",
-      l4.meanHallucinationRate,
-      l4.hallucinationYesCount,
-      l4.hallucinationTotalCount,
-    ],
-    [
-      "level4_global",
-      "hallucination_form_count",
-      l4.hallucinationFormCount,
-      "",
-      "",
-    ],
-    [
       "inter_expert",
       "shared_video_count",
       m.interExpert.sharedVideoCount,
@@ -403,13 +388,9 @@ export async function GET(req: Request) {
     "l3_next_action_accurate",
     "l3_nomenclature_standardized",
     "l3_safety_check_pass",
-    "l4_hallucination_yes_count",
-    "l4_hallucination_total_count",
-    "l4_hallucination_rate",
     ...LEVEL4_DIMENSIONS.flatMap((d) => [
       `l4_${d.key}_ai_score`,
       `l4_${d.key}_expert_score`,
-      `l4_${d.key}_hallucination`,
     ]),
     "l5_report_score",
     "l5_max_total",
@@ -437,7 +418,6 @@ export async function GET(req: Request) {
     const l1sig = level1SignalsFromGradingData(r.gradingData);
     const l2sig = level2SignalsFromGradingData(r.gradingData);
     const l3sig = level3Forms[i];
-    const l4hall = level4HallucinationFromGradingData(r.gradingData);
     const l4dims: any[] = Array.isArray(gd.level4?.dimensions)
       ? gd.level4.dimensions
       : [];
@@ -468,15 +448,7 @@ export async function GET(req: Request) {
       let ai = row?.aiScore;
       if (ai == null || ai === "") ai = parsedL4ByKey.get(def.key) ?? "";
       const expert = row?.expertScore ?? "";
-      const hall =
-        row?.aiJustificationHallucination === true ||
-        row?.aiJustificationHallucination === "yes"
-          ? "yes"
-          : row?.aiJustificationHallucination === false ||
-              row?.aiJustificationHallucination === "no"
-            ? "no"
-            : "";
-      return [ai, expert, hall];
+      return [ai, expert];
     });
 
     const structures = countStructureInputs(l1);
@@ -583,9 +555,6 @@ export async function GET(req: Request) {
       l3sig.nextActionAccurate,
       l3sig.nomenclatureStandardized,
       l3sig.safetyCheckPass,
-      l4hall?.yesCount ?? "",
-      l4hall?.totalCount ?? "",
-      l4hall?.rate ?? "",
       ...l4ScoreCols,
       ...(() => {
         const l5 = level5ScoreFromGrading(gd);

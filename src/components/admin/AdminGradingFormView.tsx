@@ -130,14 +130,6 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
 
       <section>
         <h4>Level 4 — OSATS</h4>
-        <Row
-          label="Hallucination Rate"
-          value={
-            l4.hallucinationRate != null
-              ? `${(Number(l4.hallucinationRate) * 100).toFixed(1)}% (${l4.hallucinationYesCount ?? "—"}/${l4.hallucinationTotalCount ?? "—"})`
-              : "—"
-          }
-        />
         {dimensions.length === 0 ? (
           <div className="muted">无维度数据</div>
         ) : (
@@ -145,8 +137,7 @@ export function AdminGradingFormView({ gradingData }: { gradingData: any }) {
             {dimensions.map((d) => (
               <li key={d.key || d.label}>
                 {d.label || d.key}: AI {d.aiScore ?? "—"} · expert{" "}
-                {d.expertScore ?? "—"} · hallucination{" "}
-                {yn(d.aiJustificationHallucination)}
+                {d.expertScore ?? "—"}
                 {d.aiJustification ? (
                   <div className="muted" style={{ marginTop: 4 }}>
                     {d.aiJustification}

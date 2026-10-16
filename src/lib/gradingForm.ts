@@ -85,7 +85,6 @@ export type Level3Form = {
 export type Level4DimensionForm = {
   /** Null until expert selects — avoid biasing judgment */
   expertScore: 1 | 2 | 3 | 4 | 5 | null;
-  aiJustificationHallucination: "yes" | "no" | "";
 };
 
 export type Level5DimensionForm = {
@@ -119,7 +118,6 @@ function defaultL5Dim(def: (typeof LEVEL5_DIMENSIONS)[number]): Level5DimensionF
 
 const defaultL4Dim = (): Level4DimensionForm => ({
   expertScore: null,
-  aiJustificationHallucination: "",
 });
 
 export function buildDefaultGradingForm(parsed: AiParsedData): GradingForm {
@@ -491,29 +489,8 @@ export function buildGradingPayload(values: GradingForm, parsed: AiParsedData) {
           aiScore: ai?.aiScore ?? null,
           aiJustification: ai?.justification ?? "",
           expertScore: v?.expertScore ?? null,
-          aiJustificationHallucination:
-            v?.aiJustificationHallucination === "yes",
         };
       }),
-      ...(() => {
-        let yesCount = 0;
-        let totalCount = 0;
-        for (const def of LEVEL4_DIMENSIONS) {
-          const v =
-            values.level4.dimensions[def.key]?.aiJustificationHallucination;
-          if (v === "yes") {
-            yesCount += 1;
-            totalCount += 1;
-          } else if (v === "no") {
-            totalCount += 1;
-          }
-        }
-        return {
-          hallucinationYesCount: yesCount,
-          hallucinationTotalCount: totalCount,
-          hallucinationRate: totalCount > 0 ? yesCount / totalCount : null,
-        };
-      })(),
     },
     level5: (() => {
       const autoFail = values.level5?.autoFail === "yes" ? "yes" : "no";
@@ -744,21 +721,7 @@ export function hydrateGradingForm(
             [1, 2, 3, 4, 5].includes(rawScore)
               ? (rawScore as 1 | 2 | 3 | 4 | 5)
               : null;
-          const hall =
-            d?.aiJustificationHallucination === true ||
-            d?.aiJustificationHallucination === "yes"
-              ? "yes"
-              : d?.aiJustificationHallucination === false ||
-                  d?.aiJustificationHallucination === "no"
-                ? "no"
-                : "";
-          return [
-            key,
-            {
-              expertScore,
-              aiJustificationHallucination: hall as "yes" | "no" | "",
-            },
-          ];
+          return [key, { expertScore }];
         }),
       ),
     },
@@ -1052,15 +1015,6 @@ export function getGradingIncompleteFields(
     const label = level4LabelForKey(key);
     if (![1, 2, 3, 4, 5].includes(Number(d?.expertScore))) {
       missing.push({ id: `l4-${key}-score`, message: `Level 4: ${label} expert score` });
-    }
-    if (
-      d?.aiJustificationHallucination !== "yes" &&
-      d?.aiJustificationHallucination !== "no"
-    ) {
-      missing.push({
-        id: `l4-${key}-hallucination`,
-        message: `Level 4: ${label} hallucination`,
-      });
     }
   }
 

@@ -75,9 +75,6 @@ const DERIVED_METRIC_PATHS = [
   "level1.missedInstrumentsCount",
   "level1.missedInstruments",
   "level2.metrics",
-  "level4.hallucinationRate",
-  "level4.hallucinationYesCount",
-  "level4.hallucinationTotalCount",
 ];
 
 /**

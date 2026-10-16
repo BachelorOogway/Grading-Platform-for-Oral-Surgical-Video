@@ -1,13 +1,11 @@
 /**
  * Categorical (selective) fields used for 3-grader consensus.
- * Free-text corrections and Level 4 OSATS scores are excluded; the Level 4
- * hallucination yes/no does take part.
+ * Free-text corrections and Level 4 scores are excluded.
  *
  * Absolute agreement: every categorical button path must match across all
  * three experts. Any pairwise disagreement auto-opens a discrepancy — there
  * is no silent 2:1 majority for these fields.
  */
-import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 // Level 5 scores are independent per expert — no 3-grader discrepancy / consensus.
 
 export type CategoricalField = {
@@ -27,18 +25,7 @@ function boolLabel(v: unknown): string | null {
 
 /** Yes/No fields whose "true" does not mean "correct". */
 export function isYesNoPath(path: string): boolean {
-  return (
-    path.includes("surgeryCompleted") ||
-    path.includes("aiJustificationHallucination")
-  );
-}
-
-/**
- * Level 4 hallucination is the only Level 4 answer that joins consensus —
- * OSATS scores are explicitly out of scope for discrepancies.
- */
-export function isHallucinationPath(path: string): boolean {
-  return path.endsWith(".aiJustificationHallucination");
+  return path.includes("surgeryCompleted");
 }
 
 /** Missed-instrument *count* joins consensus; the free-text list is related. */
@@ -52,8 +39,7 @@ export function isSafetyCheckPath(path: string): boolean {
 
 /**
  * Every categorical button path auto-opens on disagreement (absolute
- * agreement among the three experts). Level 4 expertScore is never in the
- * categorical extract list, so it stays excluded.
+ * agreement among the three experts). Level 4 scores are not categorical.
  *
  * @deprecated Kept for callers; always true for categorical paths now.
  */
@@ -233,50 +219,7 @@ export function extractCategoricalFields(grading: any): CategoricalField[] {
     missedInstrumentCountOf(grading),
   );
 
-  // Level 4: always emit every OSATS dimension so a missing key in one payload
-  // cannot hide a hallucination disagreement.
-  for (const def of LEVEL4_DIMENSIONS) {
-    const fromStored = level4Dimensions(grading).find((d) => d.key === def.key);
-    push(
-      `level4.dimensions.${def.key}.aiJustificationHallucination`,
-      `L4 ${def.label} hallucination`,
-      fromStored?.raw ??
-        getCategoricalRaw(
-          grading,
-          `level4.dimensions.${def.key}.aiJustificationHallucination`,
-        ),
-    );
-  }
-
   return out;
-}
-
-/** Level 4 dimensions, tolerating both the stored array and the form record. */
-function level4Dimensions(
-  grading: any,
-): Array<{ key: string; label: string; raw: unknown }> {
-  const dims = grading?.level4?.dimensions;
-  const labelOf = (key: string, fallback?: unknown) =>
-    LEVEL4_DIMENSIONS.find((d) => d.key === key)?.label ??
-    (typeof fallback === "string" && fallback ? fallback : key);
-
-  if (Array.isArray(dims)) {
-    return dims
-      .filter((d) => d && typeof d === "object" && typeof d.key === "string")
-      .map((d) => ({
-        key: d.key,
-        label: labelOf(d.key, d.label),
-        raw: d.aiJustificationHallucination,
-      }));
-  }
-  if (dims && typeof dims === "object") {
-    return Object.entries(dims as Record<string, any>).map(([key, d]) => ({
-      key,
-      label: labelOf(key, d?.label),
-      raw: d?.aiJustificationHallucination,
-    }));
-  }
-  return [];
 }
 
 /**
@@ -285,15 +228,6 @@ function level4Dimensions(
  * first two graders agreed on, so raw paths must never reach the dashboard.
  */
 export function describeCategoricalPath(path: string): string {
-  const l4 = /^level4\.dimensions\.([^.]+)\.aiJustificationHallucination$/.exec(
-    path,
-  );
-  if (l4) {
-    const label =
-      LEVEL4_DIMENSIONS.find((d) => d.key === l4[1])?.label ?? l4[1];
-    return `L4 ${label} hallucination`;
-  }
-
   const list = /^level1\.(structures|instruments)\.(\d+)\.(.+)$/.exec(path);
   if (list) {
     const kind = list[1] === "structures" ? "Structure" : "Instrument";

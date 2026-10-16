@@ -25,7 +25,6 @@ import {
   scrollToGradingField,
   type GradingForm,
 } from "@/lib/gradingForm";
-import { computeLevel4HallucinationRate } from "@/lib/level4Metrics";
 import { LEVEL4_DIMENSIONS } from "@/lib/level4Dimensions";
 import {
   LEVEL5_AUTO_FAIL_CRITERIA,
@@ -1685,28 +1684,15 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
         </div>
         <p className="page-lead" style={{ marginBottom: 12, fontSize: 13 }}>
           Score from the surgical video on your own (1–5). Scale anchors are
-          under each dimension; do not use the AI score. If the description for
-          that dimension is a hallucination, set Hallucination = Yes.
+          under each dimension; do not use the AI score.
         </p>
         {LEVEL4_DIMENSIONS.map((d) => {
           const base = `level4.dimensions.${d.key}`;
-          const hallPath = `${base}.aiJustificationHallucination`;
           const scoreErr = hasError(`l4-${d.key}-score`);
-          const hallErr = hasError(`l4-${d.key}-hallucination`);
           return (
             <div
               key={d.key}
-              className={`grading-sub${scoreErr || hallErr ? " grading-error" : ""}`}
-              style={
-                isHot(hallPath)
-                  ? {
-                      background: "#fce7f3",
-                      boxShadow: "inset 0 0 0 1px #f9a8d4",
-                      borderRadius: 8,
-                      padding: 8,
-                    }
-                  : undefined
-              }
+              className={`grading-sub${scoreErr ? " grading-error" : ""}`}
             >
               <div style={{ fontWeight: 700 }}>{d.label}</div>
               <ul
@@ -1749,67 +1735,9 @@ mAP@IoU = (1/|T|) Σ_τ P(τ)`}
                   </div>
                 </label>
               </FieldAnchor>
-              <FieldAnchor
-                id={`l4-${d.key}-hallucination`}
-                error={hallErr}
-                highlight={isHot(hallPath)}
-                style={{ padding: 6, borderRadius: 6 }}
-              >
-                <DiscSolve path={hallPath} />
-                <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-                  <legend>Hallucination (Yes / No)</legend>
-                  <label style={{ marginRight: 12 }}>
-                    <input
-                      type="radio"
-                      value="yes"
-                      {...register(`${base}.aiJustificationHallucination` as any, {
-                        required: true,
-                      })}
-                      disabled={completed}
-                    />
-                    Yes
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      value="no"
-                      {...register(`${base}.aiJustificationHallucination` as any, {
-                        required: true,
-                      })}
-                      disabled={completed}
-                    />
-                    No
-                  </label>
-                </fieldset>
-              </FieldAnchor>
             </div>
           );
         })}
-
-        {(() => {
-          const watchedDims = watch("level4.dimensions") ?? {};
-          const hall = computeLevel4HallucinationRate(
-            watchedDims as Record<
-              string,
-              { aiJustificationHallucination?: string }
-            >,
-            LEVEL4_DIMENSIONS.map((d) => d.key),
-          );
-          return (
-            <div className="grading-metrics" hidden={hideLiveMetrics} style={hideLiveMetrics ? { display: "none" } : undefined}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                Level 4 hallucination rate
-              </div>
-              <div>
-                Hallucination rate:{" "}
-                <strong>{formatMetric(hall?.rate ?? null)}</strong>
-                <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>
-                  (= Yes / total · {hall?.yesCount ?? 0}/{hall?.totalCount ?? 0})
-                </span>
-              </div>
-            </div>
-          );
-        })()}
       </div>
 
       <Level5Card
