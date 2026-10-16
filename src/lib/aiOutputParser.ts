@@ -195,9 +195,11 @@ function parseLevel2(text: string): AiParsedData["level2"] {
   );
 
   const phases: AiPhase[] = [];
-  // Accept both compact [00:00:00 to 00:00:18] and spaced [ 00 : 00 : 00 to 00 : 00 : 18 ]
+  // Accept compact or spaced times, and phases packed on one line.
+  // Stop the description at the expert stub, the next phase header, or a newline
+  // so a single-line timeline does not swallow later phases.
   const phaseRegex =
-    /\[\s*(\d{1,2})\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})\s+to\s+(\d{1,2})\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})\s*\]\s*-\s*([^\r\n]+)/gi;
+    /\[\s*(\d{1,2})\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})\s+to\s+(\d{1,2})\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})\s*\]\s*-\s*([\s\S]*?)(?=\[Human\s+Expert\s+Evaluation|Total\s+number\s+of\s+detected\s+phases|\r?\n|\[\s*\d{1,2}\s*:\s*\d{1,2}\s*:\s*\d{1,2}\s+to\s+\d{1,2}\s*:\s*\d{1,2}\s*:\s*\d{1,2}\s*\]\s*-|$)/gi;
   let m: RegExpExecArray | null;
   while ((m = phaseRegex.exec(section))) {
     const pad = (n: string) => String(Number(n)).padStart(2, "0");
